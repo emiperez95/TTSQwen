@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+qwen-tts
+transformers
+torch
+soundfile
+numpy
+accelerate
