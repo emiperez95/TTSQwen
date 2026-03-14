@@ -1,4 +1,5 @@
 import io
+import os
 import subprocess
 import tempfile
 import time
@@ -77,17 +78,25 @@ class TTSEngine:
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:
         """Apply tempo change using ffmpeg's rubberband filter."""
-        with tempfile.NamedTemporaryFile(suffix=".wav") as infile, \
-             tempfile.NamedTemporaryFile(suffix=".wav") as outfile:
-            infile.write(wav_bytes)
-            infile.flush()
+        inpath = tempfile.mktemp(suffix=".wav")
+        outpath = tempfile.mktemp(suffix=".wav")
+        try:
+            with open(inpath, "wb") as f:
+                f.write(wav_bytes)
             subprocess.run(
                 [
-                    "ffmpeg", "-y", "-i", infile.name,
+                    "ffmpeg", "-y", "-i", inpath,
                     "-af", f"rubberband=tempo={speed}",
-                    outfile.name,
+                    outpath,
                 ],
                 capture_output=True,
                 check=True,
             )
-            return outfile.read()
+            with open(outpath, "rb") as f:
+                return f.read()
+        finally:
+            for p in (inpath, outpath):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
