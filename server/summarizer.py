@@ -22,17 +22,28 @@ class Summarizer:
             {"role": "user", "content": text},
         ]
         input_text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True,
+            enable_thinking=False,
         )
         inputs = self.tokenizer(input_text, return_tensors="pt").to(self.model.device)
 
         with torch.no_grad():
             output_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=512,
+                max_new_tokens=256,
                 do_sample=False,
             )
 
         # Decode only the newly generated tokens
         new_tokens = output_ids[0][inputs["input_ids"].shape[1] :]
-        return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        result = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+        # Strip any <think> blocks that may have leaked through
+        if "<think>" in result:
+            think_end = result.rfind("</think>")
+            if think_end != -1:
+                result = result[think_end + len("</think>"):].strip()
+            else:
+                result = result.split("<think>")[0].strip()
+
+        return result
