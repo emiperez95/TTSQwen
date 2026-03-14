@@ -1,4 +1,5 @@
 import time
+import urllib.parse
 
 import uvicorn
 from fastapi import FastAPI
@@ -56,7 +57,7 @@ async def speak(req: SpeakRequest):
         headers={
             "X-Summarize-Time": f"{t_summarize:.3f}",
             "X-TTS-Time": f"{t_tts:.3f}",
-            "X-Spoken-Text": text[:200],
+            "X-Spoken-Text": urllib.parse.quote(text[:200]),
         },
     )
 
