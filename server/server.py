@@ -23,6 +23,7 @@ class SpeakRequest(BaseModel):
     language: str | None = None
     instruct: str | None = None
     speed: float | None = None
+    voice: str | None = None
 
 
 @app.on_event("startup")
@@ -56,6 +57,7 @@ async def speak(req: SpeakRequest):
         language=req.language,
         instruct=req.instruct,
         speed=req.speed,
+        voice=req.voice,
     )
     t_tts = time.time() - t1
 

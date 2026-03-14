@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -13,6 +14,8 @@ from config import TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_SPEED, TTS_VOICE
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
+
+VOICES_DIR = Path(__file__).parent / "voices"
 
 
 class TTSEngine:
@@ -45,18 +48,17 @@ class TTSEngine:
         language: str | None = None,
         instruct: str | None = None,
         speed: float | None = None,
+        voice: str | None = None,
     ) -> bytes:
         """Synthesize text to WAV bytes with optional per-request overrides."""
-        speaker = speaker or TTS_VOICE
         language = language or TTS_LANGUAGE
         instruct = instruct if instruct is not None else TTS_INSTRUCT
         speed = speed if speed is not None else TTS_SPEED
 
-        kwargs = dict(text=text, language=language, speaker=speaker)
-        if instruct:
-            kwargs["instruct"] = instruct
-
-        wavs, sr = self.model.generate_custom_voice(**kwargs)
+        if voice:
+            wavs, sr = self._generate_cloned(text, language, voice, instruct)
+        else:
+            wavs, sr = self._generate_custom(text, language, speaker or TTS_VOICE, instruct)
 
         audio = wavs[0]
         if isinstance(audio, torch.Tensor):
@@ -74,6 +76,28 @@ class TTSEngine:
             wav_bytes = self._apply_speed(wav_bytes, speed)
 
         return wav_bytes
+
+    def _generate_custom(self, text, language, speaker, instruct):
+        kwargs = dict(text=text, language=language, speaker=speaker)
+        if instruct:
+            kwargs["instruct"] = instruct
+        return self.model.generate_custom_voice(**kwargs)
+
+    def _generate_cloned(self, text, language, voice, instruct):
+        ref_audio = VOICES_DIR / f"{voice}.wav"
+        ref_text_path = VOICES_DIR / f"{voice}.txt"
+        if not ref_audio.exists():
+            raise FileNotFoundError(f"Voice file not found: {ref_audio}")
+        ref_text = ref_text_path.read_text().strip() if ref_text_path.exists() else ""
+        kwargs = dict(
+            text=text,
+            language=language,
+            ref_audio=str(ref_audio),
+            ref_text=ref_text,
+        )
+        if instruct:
+            kwargs["instruct"] = instruct
+        return self.model.generate_voice_clone(**kwargs)
 
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:
