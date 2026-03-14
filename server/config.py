@@ -5,8 +5,10 @@ SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "Qwen/Qwen3-1.7B")
 TTS_MODEL = os.getenv("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
 
 # TTS settings
-TTS_VOICE = os.getenv("TTS_VOICE", "Ryan")
+TTS_VOICE = os.getenv("TTS_VOICE", "Aiden")
 TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "English")
+TTS_INSTRUCT = os.getenv("TTS_INSTRUCT", "")
+TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 TTS_SAMPLE_RATE = 24000
 
 # Server

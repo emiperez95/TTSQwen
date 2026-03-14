@@ -19,6 +19,10 @@ tts: TTSEngine | None = None
 class SpeakRequest(BaseModel):
     text: str
     summarize: bool = True
+    speaker: str | None = None
+    language: str | None = None
+    instruct: str | None = None
+    speed: float | None = None
 
 
 @app.on_event("startup")
@@ -46,7 +50,13 @@ async def speak(req: SpeakRequest):
         t_summarize = 0
 
     t1 = time.time()
-    wav_bytes = tts.synthesize(text)
+    wav_bytes = tts.synthesize(
+        text,
+        speaker=req.speaker,
+        language=req.language,
+        instruct=req.instruct,
+        speed=req.speed,
+    )
     t_tts = time.time() - t1
 
     print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
@@ -59,21 +69,6 @@ async def speak(req: SpeakRequest):
             "X-TTS-Time": f"{t_tts:.3f}",
             "X-Spoken-Text": urllib.parse.quote(text[:200]),
         },
-    )
-
-
-@app.post("/tts")
-async def tts_only(req: SpeakRequest):
-    """Direct TTS without summarization."""
-    t0 = time.time()
-    wav_bytes = tts.synthesize(req.text)
-    t_tts = time.time() - t0
-    print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
-
-    return Response(
-        content=wav_bytes,
-        media_type="audio/wav",
-        headers={"X-TTS-Time": f"{t_tts:.3f}"},
     )
 
 

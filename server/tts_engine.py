@@ -1,4 +1,6 @@
 import io
+import subprocess
+import tempfile
 import time
 
 import numpy as np
@@ -6,7 +8,7 @@ import soundfile as sf
 import torch
 from faster_qwen3_tts import FasterQwen3TTS
 
-from config import TTS_LANGUAGE, TTS_MODEL, TTS_VOICE
+from config import TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_SPEED, TTS_VOICE
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -35,13 +37,25 @@ class TTSEngine:
         )
         print(f"Warmup done in {time.time() - t0:.1f}s")
 
-    def synthesize(self, text: str) -> bytes:
-        """Synthesize text to WAV bytes."""
-        wavs, sr = self.model.generate_custom_voice(
-            text=text,
-            language=TTS_LANGUAGE,
-            speaker=TTS_VOICE,
-        )
+    def synthesize(
+        self,
+        text: str,
+        speaker: str | None = None,
+        language: str | None = None,
+        instruct: str | None = None,
+        speed: float | None = None,
+    ) -> bytes:
+        """Synthesize text to WAV bytes with optional per-request overrides."""
+        speaker = speaker or TTS_VOICE
+        language = language or TTS_LANGUAGE
+        instruct = instruct if instruct is not None else TTS_INSTRUCT
+        speed = speed if speed is not None else TTS_SPEED
+
+        kwargs = dict(text=text, language=language, speaker=speaker)
+        if instruct:
+            kwargs["instruct"] = instruct
+
+        wavs, sr = self.model.generate_custom_voice(**kwargs)
 
         audio = wavs[0]
         if isinstance(audio, torch.Tensor):
@@ -53,4 +67,27 @@ class TTSEngine:
 
         buf = io.BytesIO()
         sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
-        return buf.getvalue()
+        wav_bytes = buf.getvalue()
+
+        if speed != 1.0:
+            wav_bytes = self._apply_speed(wav_bytes, speed)
+
+        return wav_bytes
+
+    @staticmethod
+    def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:
+        """Apply tempo change using ffmpeg's rubberband filter."""
+        with tempfile.NamedTemporaryFile(suffix=".wav") as infile, \
+             tempfile.NamedTemporaryFile(suffix=".wav") as outfile:
+            infile.write(wav_bytes)
+            infile.flush()
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", infile.name,
+                    "-af", f"rubberband=tempo={speed}",
+                    outfile.name,
+                ],
+                capture_output=True,
+                check=True,
+            )
+            return outfile.read()
