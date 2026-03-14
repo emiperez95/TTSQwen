@@ -4,7 +4,7 @@ torch
 torchaudio
 fastapi
 uvicorn[standard]
-qwen-tts
+faster-qwen3-tts
 transformers
 soundfile
 numpy

@@ -1,22 +1,39 @@
 import io
+import time
 
 import numpy as np
 import soundfile as sf
 import torch
-from qwen_tts import Qwen3TTSModel
+from faster_qwen3_tts import FasterQwen3TTS
 
 from config import TTS_LANGUAGE, TTS_MODEL, TTS_VOICE
+
+torch.set_float32_matmul_precision("high")
+torch.backends.cudnn.benchmark = True
 
 
 class TTSEngine:
     def __init__(self):
         print(f"Loading TTS model: {TTS_MODEL}")
-        self.model = Qwen3TTSModel.from_pretrained(
+        self.model = FasterQwen3TTS.from_pretrained(
             TTS_MODEL,
-            device_map="cuda:0",
+            device="cuda",
             dtype=torch.bfloat16,
+            attn_implementation="sdpa",
         )
         print(f"TTS ready. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
+        self._warmup()
+
+    def _warmup(self):
+        """Run warmup inference to capture CUDA graphs."""
+        print("Warming up TTS (CUDA graph capture)...")
+        t0 = time.time()
+        self.model.generate_custom_voice(
+            text="Warmup.",
+            language=TTS_LANGUAGE,
+            speaker=TTS_VOICE,
+        )
+        print(f"Warmup done in {time.time() - t0:.1f}s")
 
     def synthesize(self, text: str) -> bytes:
         """Synthesize text to WAV bytes."""
