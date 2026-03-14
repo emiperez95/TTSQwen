@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .env
 *.wav
+!server/voices/*.wav
 *.mp3
 venv/
 .venv/
