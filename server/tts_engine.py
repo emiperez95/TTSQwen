@@ -123,6 +123,7 @@ class TTSEngine:
             language=language,
             ref_audio=str(ref_audio),
             ref_text=ref_text,
+            xvec_only=False,
         )
         if instruct:
             kwargs["instruct"] = instruct
