@@ -60,7 +60,7 @@ def main():
             audio = audio.cpu().numpy()
 
         sf.write(str(out_wav), audio, sr)
-        out_txt.write_text(text)
+        out_txt.write_text(text, encoding="utf-8")
         print(f"  Saved {out_wav} ({len(audio)/sr:.1f}s)")
 
     print("Done! Voice references saved to", VOICES_DIR)

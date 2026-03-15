@@ -59,7 +59,7 @@ class TTSEngine:
         if voices:
             ref = voices[0]
             ref_text_path = ref.with_suffix(".txt")
-            ref_text = ref_text_path.read_text().strip() if ref_text_path.exists() else ""
+            ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
             print("Warming up Base model...")
             t0 = time.time()
             self.base_model.generate_voice_clone(
@@ -117,7 +117,7 @@ class TTSEngine:
         ref_text_path = VOICES_DIR / f"{voice}.txt"
         if not ref_audio.exists():
             raise FileNotFoundError(f"Voice file not found: {ref_audio}")
-        ref_text = ref_text_path.read_text().strip() if ref_text_path.exists() else ""
+        ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
         kwargs = dict(
             text=text,
             language=language,
