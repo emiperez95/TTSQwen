@@ -10,7 +10,9 @@ import soundfile as sf
 import torch
 from faster_qwen3_tts import FasterQwen3TTS
 
-from config import TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_SPEED, TTS_VOICE
+from config import (
+    TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEED, TTS_VOICE,
+)
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -20,26 +22,53 @@ VOICES_DIR = Path(__file__).parent / "voices"
 
 class TTSEngine:
     def __init__(self):
-        print(f"Loading TTS model: {TTS_MODEL}")
-        self.model = FasterQwen3TTS.from_pretrained(
+        # CustomVoice model for preset speakers
+        print(f"Loading CustomVoice model: {TTS_MODEL}")
+        self.custom_model = FasterQwen3TTS.from_pretrained(
             TTS_MODEL,
             device="cuda",
             dtype=torch.bfloat16,
             attn_implementation="sdpa",
         )
+
+        # Base model for voice cloning
+        print(f"Loading Base model: {TTS_MODEL_BASE}")
+        self.base_model = FasterQwen3TTS.from_pretrained(
+            TTS_MODEL_BASE,
+            device="cuda",
+            dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+        )
+
         print(f"TTS ready. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
         self._warmup()
 
     def _warmup(self):
         """Run warmup inference to capture CUDA graphs."""
-        print("Warming up TTS (CUDA graph capture)...")
+        print("Warming up CustomVoice model...")
         t0 = time.time()
-        self.model.generate_custom_voice(
+        self.custom_model.generate_custom_voice(
             text="Warmup.",
             language=TTS_LANGUAGE,
             speaker=TTS_VOICE,
         )
-        print(f"Warmup done in {time.time() - t0:.1f}s")
+        print(f"CustomVoice warmup done in {time.time() - t0:.1f}s")
+
+        # Warmup base model if any voice references exist
+        voices = list(VOICES_DIR.glob("*.wav"))
+        if voices:
+            ref = voices[0]
+            ref_text_path = ref.with_suffix(".txt")
+            ref_text = ref_text_path.read_text().strip() if ref_text_path.exists() else ""
+            print("Warming up Base model...")
+            t0 = time.time()
+            self.base_model.generate_voice_clone(
+                text="Warmup.",
+                language=TTS_LANGUAGE,
+                ref_audio=str(ref),
+                ref_text=ref_text,
+            )
+            print(f"Base warmup done in {time.time() - t0:.1f}s")
 
     def synthesize(
         self,
@@ -81,7 +110,7 @@ class TTSEngine:
         kwargs = dict(text=text, language=language, speaker=speaker)
         if instruct:
             kwargs["instruct"] = instruct
-        return self.model.generate_custom_voice(**kwargs)
+        return self.custom_model.generate_custom_voice(**kwargs)
 
     def _generate_cloned(self, text, language, voice, instruct):
         ref_audio = VOICES_DIR / f"{voice}.wav"
@@ -97,7 +126,7 @@ class TTSEngine:
         )
         if instruct:
             kwargs["instruct"] = instruct
-        return self.model.generate_voice_clone(**kwargs)
+        return self.base_model.generate_voice_clone(**kwargs)
 
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:

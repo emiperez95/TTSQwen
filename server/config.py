@@ -3,6 +3,7 @@ import os
 # Models
 SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "Qwen/Qwen3-1.7B")
 TTS_MODEL = os.getenv("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")
+TTS_MODEL_BASE = os.getenv("TTS_MODEL_BASE", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 
 # TTS settings
 TTS_VOICE = os.getenv("TTS_VOICE", "Aiden")
