@@ -1,6 +1,8 @@
+import json
 import time
 import wave
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -10,6 +12,22 @@ from config import (
 )
 
 router = APIRouter(prefix="/api")
+
+PRESETS_FILE = Path(__file__).parent / "presets.json"
+
+
+def _load_presets() -> list[dict]:
+    try:
+        return json.loads(PRESETS_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_presets(presets: list[dict]):
+    PRESETS_FILE.write_text(
+        json.dumps(presets, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _wav_duration(wav_bytes: bytes) -> float:
@@ -28,7 +46,7 @@ async def get_config():
         "default_speed": TTS_SPEED,
         "default_instruct": TTS_INSTRUCT,
         "speakers": list(PRESET_SPEAKERS.keys()),
-        "languages": ["English", "Chinese", "Japanese", "Korean"],
+        "languages": ["English", "Chinese", "Japanese", "Korean", "Spanish"],
     }
 
 
@@ -44,6 +62,7 @@ async def api_speak(
     instruct: str = Form(""),
     speed: float = Form(1.0),
     voice: str = Form(None),
+    preset: str = Form(None),
 ):
     tts = request.app.state.tts
     summarizer = request.app.state.summarizer
@@ -76,6 +95,7 @@ async def api_speak(
     metadata = {
         "text_input": text_input[:500],
         "text_spoken": text_spoken[:500],
+        "preset": preset,
         "speaker": speaker or TTS_VOICE,
         "voice": voice,
         "language": language or TTS_LANGUAGE,
@@ -91,6 +111,51 @@ async def api_speak(
     history_mgr.add(entry_id, metadata, wav_bytes)
 
     return {"id": entry_id, **metadata}
+
+
+# ─── Presets ───
+
+@router.get("/presets")
+async def list_presets():
+    return _load_presets()
+
+
+@router.post("/presets")
+async def save_preset(request: Request):
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Preset name is required")
+
+    preset = {
+        "name": name,
+        "speaker": body.get("speaker"),
+        "voice": body.get("voice"),
+        "language": body.get("language", "English"),
+        "instruct": body.get("instruct", ""),
+        "speed": body.get("speed", 1.0),
+        "summarize": body.get("summarize", True),
+    }
+
+    presets = _load_presets()
+    # Update existing or append
+    idx = next((i for i, p in enumerate(presets) if p["name"] == name), None)
+    if idx is not None:
+        presets[idx] = preset
+    else:
+        presets.append(preset)
+    _save_presets(presets)
+    return {"status": "ok", "preset": preset}
+
+
+@router.delete("/presets/{name}")
+async def delete_preset(name: str):
+    presets = _load_presets()
+    new_presets = [p for p in presets if p["name"] != name]
+    if len(new_presets) == len(presets):
+        raise HTTPException(status_code=404, detail="Preset not found")
+    _save_presets(new_presets)
+    return {"status": "ok"}
 
 
 # ─── Voices ───

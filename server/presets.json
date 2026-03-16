@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Claude Response",
+    "speaker": "Aiden",
+    "voice": null,
+    "language": "English",
+    "instruct": "",
+    "speed": 1.0,
+    "summarize": true
+  },
+  {
+    "name": "DnD Narrator (Dolina)",
+    "speaker": null,
+    "voice": "dolina",
+    "language": "Spanish",
+    "instruct": "",
+    "speed": 1.0,
+    "summarize": false
+  },
+  {
+    "name": "DnD Narrator (Aiden)",
+    "speaker": "Aiden",
+    "voice": null,
+    "language": "Spanish",
+    "instruct": "Deep, slow and dramatic narrator voice. Calm and mysterious tone, like a fantasy storyteller.",
+    "speed": 1.0,
+    "summarize": false
+  }
+]

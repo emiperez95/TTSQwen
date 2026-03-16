@@ -456,6 +456,76 @@ audio {
     accent-color: var(--accent);
 }
 
+/* Preset items */
+.preset-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+}
+
+.preset-item:hover { border-color: var(--accent); }
+
+.preset-info { flex: 1; min-width: 0; }
+
+.preset-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+}
+
+.preset-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.preset-details span {
+    background: var(--bg-secondary);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.preset-instruct {
+    max-width: 300px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    vertical-align: bottom;
+}
+
+.preset-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 4px;
+}
+
+.preset-form {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+
+/* History preset badge */
+.history-preset-badge {
+    background: var(--accent);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
     .form-row, .form-row-3 { grid-template-columns: 1fr; }

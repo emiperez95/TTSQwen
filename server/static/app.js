@@ -29,6 +29,8 @@ document.addEventListener('alpine:init', () => {
 
     Alpine.data('playground', () => ({
         config: null,
+        presets: [],
+        selectedPreset: '',
         text: '',
         summarize: true,
         speaker: '',
@@ -42,17 +44,39 @@ document.addEventListener('alpine:init', () => {
         result: null,
 
         async init() {
-            const r = await fetch('/api/config');
-            this.config = await r.json();
+            const [configR, voicesR, presetsR] = await Promise.all([
+                fetch('/api/config'),
+                fetch('/api/voices'),
+                fetch('/api/presets'),
+            ]);
+            this.config = await configR.json();
+            const voices = await voicesR.json();
+            this.clonedVoices = voices.cloned || [];
+            this.presets = await presetsR.json();
+
             this.speaker = this.config.default_speaker;
             this.language = this.config.default_language;
             this.speed = this.config.default_speed;
             this.instruct = this.config.default_instruct;
+        },
 
-            // Fetch cloned voices for the dropdown
-            const vr = await fetch('/api/voices');
-            const voices = await vr.json();
-            this.clonedVoices = voices.cloned || [];
+        loadPreset() {
+            if (!this.selectedPreset) return;
+            const p = this.presets.find(x => x.name === this.selectedPreset);
+            if (!p) return;
+            this.language = p.language || 'English';
+            this.instruct = p.instruct || '';
+            this.speed = p.speed ?? 1.0;
+            this.summarize = p.summarize ?? true;
+            if (p.voice) {
+                this.useClonedVoice = true;
+                this.voice = p.voice;
+                this.speaker = '';
+            } else {
+                this.useClonedVoice = false;
+                this.voice = '';
+                this.speaker = p.speaker || this.config.default_speaker;
+            }
         },
 
         async generate() {
@@ -73,6 +97,10 @@ document.addEventListener('alpine:init', () => {
                 form.append('speaker', this.speaker);
             }
 
+            if (this.selectedPreset) {
+                form.append('preset', this.selectedPreset);
+            }
+
             try {
                 const r = await fetch('/api/speak', { method: 'POST', body: form });
                 if (!r.ok) throw new Error(await r.text());
@@ -82,6 +110,115 @@ document.addEventListener('alpine:init', () => {
             } finally {
                 this.loading = false;
             }
+        },
+    }));
+
+    // ─── Presets ───
+
+    Alpine.data('presets', () => ({
+        presets: [],
+        editing: null, // preset being edited, or fresh object for new
+        clonedVoices: [],
+        speakers: [],
+
+        async init() {
+            await this.load();
+            const [configR, voicesR] = await Promise.all([
+                fetch('/api/config'),
+                fetch('/api/voices'),
+            ]);
+            const config = await configR.json();
+            this.speakers = config.speakers;
+            const voices = await voicesR.json();
+            this.clonedVoices = voices.cloned || [];
+        },
+
+        async load() {
+            const r = await fetch('/api/presets');
+            this.presets = await r.json();
+        },
+
+        newPreset() {
+            this.editing = {
+                name: '',
+                speaker: 'Aiden',
+                voice: '',
+                language: 'English',
+                instruct: '',
+                speed: 1.0,
+                summarize: true,
+                _useVoice: false,
+                _isNew: true,
+            };
+        },
+
+        editPreset(p) {
+            this.editing = {
+                ...p,
+                voice: p.voice || '',
+                speaker: p.speaker || '',
+                _useVoice: !!p.voice,
+                _isNew: false,
+                _origName: p.name,
+            };
+        },
+
+        cancelEdit() {
+            this.editing = null;
+        },
+
+        async savePreset() {
+            const e = this.editing;
+            if (!e.name.trim()) {
+                Alpine.store('app').showToast('Name is required', 'error');
+                return;
+            }
+            const body = {
+                name: e.name.trim(),
+                speaker: e._useVoice ? null : (e.speaker || 'Aiden'),
+                voice: e._useVoice ? (e.voice || null) : null,
+                language: e.language || 'English',
+                instruct: e.instruct || '',
+                speed: e.speed ?? 1.0,
+                summarize: e.summarize ?? true,
+            };
+
+            try {
+                const r = await fetch('/api/presets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (!r.ok) throw new Error((await r.json()).detail);
+                Alpine.store('app').showToast('Preset saved');
+                this.editing = null;
+                await this.load();
+            } catch (e) {
+                Alpine.store('app').showToast(e.message, 'error');
+            }
+        },
+
+        async deletePreset(name) {
+            if (!confirm(`Delete preset "${name}"?`)) return;
+            try {
+                const r = await fetch(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (!r.ok) throw new Error((await r.json()).detail);
+                Alpine.store('app').showToast('Preset deleted');
+                await this.load();
+            } catch (e) {
+                Alpine.store('app').showToast(e.message, 'error');
+            }
+        },
+
+        useInPlayground(p) {
+            Alpine.store('app').tab = 'playground';
+            this.$nextTick(() => {
+                const pg = document.querySelector('[x-data="playground()"]');
+                if (!pg) return;
+                const scope = Alpine.$data(pg);
+                scope.selectedPreset = p.name;
+                scope.loadPreset();
+            });
         },
     }));
 
@@ -162,9 +299,17 @@ document.addEventListener('alpine:init', () => {
 
     Alpine.data('history', () => ({
         entries: [],
+        presets: [],
+        filterPreset: '',
         loading: true,
 
-        async init() { await this.load(); },
+        async init() {
+            const [_, presetsR] = await Promise.all([
+                this.load(),
+                fetch('/api/presets'),
+            ]);
+            this.presets = await presetsR.json();
+        },
 
         async load() {
             this.loading = true;
@@ -174,6 +319,12 @@ document.addEventListener('alpine:init', () => {
             } finally {
                 this.loading = false;
             }
+        },
+
+        get filteredEntries() {
+            if (!this.filterPreset) return this.entries;
+            if (this.filterPreset === '__none__') return this.entries.filter(e => !e.preset);
+            return this.entries.filter(e => e.preset === this.filterPreset);
         },
 
         async deleteEntry(id) {
@@ -198,7 +349,6 @@ document.addEventListener('alpine:init', () => {
 
         reuseSettings(entry) {
             Alpine.store('app').tab = 'playground';
-            // Wait for tab switch, then set values
             this.$nextTick(() => {
                 const pg = document.querySelector('[x-data="playground()"]');
                 if (!pg) return;
@@ -208,6 +358,9 @@ document.addEventListener('alpine:init', () => {
                 scope.language = entry.language;
                 scope.instruct = entry.instruct;
                 scope.speed = entry.speed;
+                if (entry.preset) {
+                    scope.selectedPreset = entry.preset;
+                }
                 if (entry.voice) {
                     scope.useClonedVoice = true;
                     scope.voice = entry.voice;
@@ -219,7 +372,6 @@ document.addEventListener('alpine:init', () => {
         },
 
         formatTime(id) {
-            // id format: YYYYMMDD_HHMMSS_xxxx
             const m = id.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
             if (!m) return id;
             return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
