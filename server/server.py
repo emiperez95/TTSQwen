@@ -107,17 +107,14 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 if __name__ == "__main__":
-    # Only log failed requests, suppress 2xx/3xx
+    # Suppress successful health check logs only
     import logging
-    import re
 
-    _status_re = re.compile(r'" (\d{3}) ')
-
-    class SuccessFilter(logging.Filter):
+    class HealthFilter(logging.Filter):
         def filter(self, record):
-            m = _status_re.search(record.getMessage())
-            return not m or not m.group(1).startswith(('2', '3'))
+            msg = record.getMessage()
+            return not ('"GET /health' in msg and '" 200 ' in msg)
 
-    logging.getLogger("uvicorn.access").addFilter(SuccessFilter())
+    logging.getLogger("uvicorn.access").addFilter(HealthFilter())
 
     uvicorn.run(app, host=HOST, port=PORT)
