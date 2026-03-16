@@ -97,6 +97,11 @@ async def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse(STATIC_DIR / "favicon.ico")
+
+
 # Mount static files last so routes take priority
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
