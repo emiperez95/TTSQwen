@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTSQwen</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="/static/app.js"></script>
+</head>
+<body x-data x-init="$store.app.init()">
+    <div class="container">
+
+        <!-- Header -->
+        <header>
+            <h1>TTS<span>Qwen</span></h1>
+            <div class="server-status">
+                <span class="status-dot" :class="{ offline: !$store.app.serverOnline }"></span>
+                <span x-text="$store.app.serverOnline ? 'Server online' : 'Server offline'"></span>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn" :class="{ active: $store.app.tab === 'playground' }"
+                    @click="$store.app.tab = 'playground'">Playground</button>
+            <button class="tab-btn" :class="{ active: $store.app.tab === 'voices' }"
+                    @click="$store.app.tab = 'voices'">Voices</button>
+            <button class="tab-btn" :class="{ active: $store.app.tab === 'history' }"
+                    @click="$store.app.tab = 'history'">History</button>
+        </div>
+
+        <!-- ═══ Playground Tab ═══ -->
+        <div x-show="$store.app.tab === 'playground'" x-data="playground()" x-cloak>
+            <div class="card">
+                <div class="form-group">
+                    <label for="tts-text">Text</label>
+                    <textarea id="tts-text" x-model="text" placeholder="Enter text to speak..."
+                              rows="4" @keydown.meta.enter="generate()"></textarea>
+                </div>
+
+                <div class="form-row" style="margin-bottom: 12px">
+                    <div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" x-model="useClonedVoice">
+                            Use cloned voice
+                        </label>
+                    </div>
+                    <div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" x-model="summarize">
+                            Summarize text
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div x-show="!useClonedVoice">
+                        <label>Speaker</label>
+                        <select x-model="speaker">
+                            <template x-if="config">
+                                <template x-for="s in config.speakers" :key="s">
+                                    <option :value="s" x-text="s"></option>
+                                </template>
+                            </template>
+                        </select>
+                    </div>
+                    <div x-show="useClonedVoice">
+                        <label>Cloned Voice</label>
+                        <select x-model="voice">
+                            <option value="">-- select --</option>
+                            <template x-for="v in clonedVoices" :key="v.name">
+                                <option :value="v.name" x-text="v.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Language</label>
+                        <select x-model="language">
+                            <template x-if="config">
+                                <template x-for="l in config.languages" :key="l">
+                                    <option :value="l" x-text="l"></option>
+                                </template>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div>
+                        <label>Speed</label>
+                        <input type="number" x-model.number="speed" min="0.5" max="2.0" step="0.1">
+                    </div>
+                    <div>
+                        <label>Instruct <span style="color:var(--text-muted)">(optional style)</span></label>
+                        <input type="text" x-model="instruct" placeholder="e.g. whispering, excited">
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px">
+                    <button class="btn btn-primary" @click="generate()" :disabled="loading || !text.trim()">
+                        <template x-if="loading"><span class="spinner"></span></template>
+                        <span x-text="loading ? 'Generating...' : 'Generate Speech'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <template x-if="result">
+                <div class="result-card">
+                    <audio :src="result.audio_url" controls autoplay></audio>
+                    <div class="result-meta">
+                        <span x-text="result.speaker || result.voice"></span>
+                        <span x-text="result.language"></span>
+                        <span x-text="result.duration + 's'"></span>
+                        <span x-text="'TTS: ' + result.tts_time + 's'"></span>
+                        <template x-if="result.summarized">
+                            <span x-text="'Summarize: ' + result.summarize_time + 's'"></span>
+                        </template>
+                    </div>
+                    <template x-if="result.summarized && result.text_spoken !== result.text_input">
+                        <div class="spoken-text" x-text="result.text_spoken"></div>
+                    </template>
+                </div>
+            </template>
+        </div>
+
+        <!-- ═══ Voices Tab ═══ -->
+        <div x-show="$store.app.tab === 'voices'" x-data="voices()" x-cloak>
+
+            <!-- Preset voices -->
+            <div class="card">
+                <div class="card-title">Preset Speakers</div>
+                <div class="voice-grid">
+                    <template x-for="v in preset" :key="v.name">
+                        <div class="voice-card">
+                            <div class="voice-name" x-text="v.name"></div>
+                            <div class="voice-lang" x-text="v.language"></div>
+                            <div class="voice-desc" x-text="v.description"></div>
+                            <div class="voice-actions">
+                                <audio :src="'/api/voices/' + v.name.toLowerCase() + '/preview'"
+                                       controls preload="none"></audio>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Cloned voices -->
+            <div class="card">
+                <div class="card-title">Cloned Voices</div>
+                <template x-if="cloned.length === 0">
+                    <div class="empty-state">No cloned voices yet</div>
+                </template>
+                <div class="voice-grid">
+                    <template x-for="v in cloned" :key="v.name">
+                        <div class="voice-card">
+                            <div class="voice-name" x-text="v.name"></div>
+                            <div class="voice-lang" x-text="v.has_transcript ? 'Has transcript' : 'No transcript'"></div>
+                            <div class="voice-actions">
+                                <audio :src="'/api/voices/' + v.name + '/preview'"
+                                       controls preload="none"></audio>
+                                <button class="btn btn-danger btn-sm" @click="deleteVoice(v.name)">Del</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Upload -->
+            <div class="card">
+                <div class="card-title">Upload New Voice</div>
+                <div class="form-row">
+                    <div>
+                        <label>Voice name</label>
+                        <input type="text" x-model="uploadName"
+                               placeholder="lowercase_with_underscores" pattern="[a-z][a-z0-9_]*">
+                    </div>
+                    <div>
+                        <label>Transcript <span style="color:var(--text-muted)">(optional)</span></label>
+                        <input type="text" x-model="uploadTranscript"
+                               placeholder="What the speaker says in the audio">
+                    </div>
+                </div>
+
+                <div class="upload-zone" :class="{ dragover }"
+                     @dragover.prevent="dragover = true"
+                     @dragleave.prevent="dragover = false"
+                     @drop.prevent="handleDrop($event)"
+                     @click="$refs.fileInput.click()">
+                    <input type="file" accept=".wav,.mp3,.ogg,.flac" x-ref="fileInput"
+                           @change="handleFileSelect($event)">
+                    <template x-if="!uploadFileName">
+                        <span>Drop audio file here or click to select</span>
+                    </template>
+                    <template x-if="uploadFileName">
+                        <span x-text="uploadFileName"></span>
+                    </template>
+                </div>
+
+                <div style="margin-top: 12px">
+                    <button class="btn btn-primary" @click="upload()"
+                            :disabled="uploading || !uploadName || !uploadFile">
+                        <template x-if="uploading"><span class="spinner"></span></template>
+                        <span x-text="uploading ? 'Uploading...' : 'Upload Voice'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ History Tab ═══ -->
+        <div x-show="$store.app.tab === 'history'" x-data="history()" x-cloak>
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                    <div class="card-title" style="margin-bottom: 0">Recent Generations</div>
+                    <div style="display: flex; gap: 8px">
+                        <button class="btn btn-ghost btn-sm" @click="load()">Refresh</button>
+                        <button class="btn btn-danger btn-sm" @click="clearAll()"
+                                x-show="entries.length > 0">Clear All</button>
+                    </div>
+                </div>
+
+                <template x-if="loading">
+                    <div class="empty-state"><span class="spinner"></span></div>
+                </template>
+
+                <template x-if="!loading && entries.length === 0">
+                    <div class="empty-state">No history yet. Generate some speech in the Playground!</div>
+                </template>
+
+                <template x-for="entry in entries" :key="entry.id">
+                    <div class="history-item">
+                        <div class="history-info">
+                            <div class="history-text" x-text="entry.text_input"></div>
+                            <div class="history-meta">
+                                <span x-text="(entry.voice || entry.speaker) + ' · ' + entry.language + ' · ' + entry.duration + 's'"></span>
+                                · <span x-text="formatTime(entry.id)"></span>
+                            </div>
+                        </div>
+                        <div class="history-audio">
+                            <audio :src="entry.audio_url" controls preload="none"></audio>
+                        </div>
+                        <div class="history-actions">
+                            <button class="btn btn-ghost btn-sm" @click="reuseSettings(entry)"
+                                    title="Reuse settings">Reuse</button>
+                            <button class="btn btn-danger btn-sm" @click="deleteEntry(entry.id)"
+                                    title="Delete">Del</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Toast -->
+    <template x-if="$store.app.toast">
+        <div class="toast" :class="$store.app.toast.type" x-text="$store.app.toast.msg"></div>
+    </template>
+
+</body>
+</html>

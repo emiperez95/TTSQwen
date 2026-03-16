@@ -9,3 +9,4 @@ transformers
 soundfile
 numpy
 accelerate
+python-multipart

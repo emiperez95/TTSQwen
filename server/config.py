@@ -16,6 +16,22 @@ TTS_SAMPLE_RATE = 24000
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9800"))
 
+# History
+HISTORY_MAX_ENTRIES = 200
+
+# Preset speakers metadata (name → {language, description})
+PRESET_SPEAKERS = {
+    "Aiden": {"language": "English", "description": "Sunny American male, clear midrange"},
+    "Ryan": {"language": "English", "description": "Dynamic male, strong rhythmic drive"},
+    "Vivian": {"language": "Chinese", "description": "Bright, slightly edgy young female"},
+    "Serena": {"language": "Chinese", "description": "Warm, gentle young female"},
+    "Dylan": {"language": "Chinese", "description": "Youthful Beijing male, clear natural"},
+    "Eric": {"language": "Chinese", "description": "Lively Chengdu male, slightly husky"},
+    "Uncle_Fu": {"language": "Chinese", "description": "Seasoned male, low mellow timbre"},
+    "Ono_Anna": {"language": "Japanese", "description": "Playful Japanese female"},
+    "Sohee": {"language": "Korean", "description": "Warm Korean female"},
+}
+
 # Summarizer prompt
 SUMMARIZER_SYSTEM_PROMPT = """You are a text-to-speech preprocessor. Convert the input into a concise spoken summary.
 
