@@ -14,7 +14,7 @@ document.addEventListener('alpine:init', () => {
 
         async checkHealth() {
             try {
-                const r = await fetch('/health');
+                const r = await fetch('/health', { headers: { 'X-Health-Check': '1' } });
                 this.serverOnline = r.ok;
             } catch { this.serverOnline = false; }
         },
