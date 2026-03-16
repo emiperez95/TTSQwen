@@ -20,8 +20,11 @@ document.addEventListener('alpine:init', () => {
         },
 
         init() {
-            this.checkHealth();
-            setInterval(() => this.checkHealth(), 30000);
+            if (!Alpine.store('app')._healthStarted) {
+                Alpine.store('app')._healthStarted = true;
+                this.checkHealth();
+                setInterval(() => this.checkHealth(), 120000);
+            }
         }
     });
 

@@ -107,4 +107,13 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 if __name__ == "__main__":
+    # Suppress noisy health check logs from the web UI polling
+    import logging
+
+    class HealthFilter(logging.Filter):
+        def filter(self, record):
+            return '"GET /health' not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(HealthFilter())
+
     uvicorn.run(app, host=HOST, port=PORT)
