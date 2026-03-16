@@ -161,22 +161,67 @@ Total VRAM: ~14GB (fits on RTX 5090 32GB).
 
 TTS uses [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) with CUDA graph capture and SDPA attention for ~3.7x real-time generation.
 
-## Server Setup (Windows)
+## Server Setup (WSL2 on Windows)
+
+The server runs inside WSL2 as a systemd user service — no open terminal needed.
+
+### Automated setup
+
+SSH into the Windows machine, enter WSL, and run:
 
 ```bash
-cd server
-pip install -r requirements.txt
-python server.py
+ssh windows-pc
+# Inside WSL:
+bash ~/Projects/TTSQwen/scripts/setup-wsl.sh
+```
+
+This installs system deps, clones the repo, creates a venv, installs Python packages, and enables the systemd service with lingering.
+
+### Manual setup
+
+```bash
+# System deps
+sudo apt-get install -y tmux python3-venv ffmpeg libavfilter-extra
+
+# Clone and install
+mkdir -p ~/Projects && cd ~/Projects
+git clone https://github.com/emiperez95/TTSQwen.git
+cd TTSQwen/server
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+# Install systemd service
+mkdir -p ~/.config/systemd/user
+cp ttsqwen.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ttsqwen
+sudo loginctl enable-linger $USER
+```
+
+### Service management
+
+```bash
+systemctl --user status ttsqwen      # Check status
+systemctl --user restart ttsqwen     # Restart
+journalctl --user -u ttsqwen -f     # Follow logs
+```
+
+### Verify from Mac
+
+```bash
+curl http://10.18.1.2:9800/health
+# → {"status":"ok"}
 ```
 
 The server starts on port 9800, serves the web UI at `/`, and the CLI API at `/speak`.
 
-Requires ffmpeg with librubberband for speed control. Install via [gyan.dev essentials build](https://www.gyan.dev/ffmpeg/builds/).
+Requires ffmpeg with librubberband for speed control (installed by setup script).
 
 ### Generate preset voice references (one-time)
 
 ```bash
-python generate_voice_refs.py
+cd ~/Projects/TTSQwen/server
+.venv/bin/python generate_voice_refs.py
 ```
 
 Saves reference clips for all 9 preset speakers to `server/voices/`, enabling them to be used via voice cloning on the Base model as well.

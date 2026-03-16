@@ -1,0 +1,28 @@
+[Unit]
+Description=TTSQwen - Qwen3 TTS Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/TTSQwen/server
+ExecStart=%h/Projects/TTSQwen/server/.venv/bin/python server.py
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=PATH=%h/Projects/TTSQwen/server/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+Environment=HF_HOME=%h/.cache/huggingface
+
+# GPU access
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ttsqwen
+
+[Install]
+WantedBy=default.target
