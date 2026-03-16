@@ -4,8 +4,8 @@
     "speaker": "Aiden",
     "voice": null,
     "language": "English",
-    "instruct": "",
-    "speed": 1.0,
+    "instruct": "Fast-paced, clear and direct delivery. Cold, concise tone.",
+    "speed": 1.3,
     "summarize": true
   },
   {

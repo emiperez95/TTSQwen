@@ -1,24 +1,44 @@
 # TTSQwen
 
-Two-machine TTS pipeline: Mac CLI client sends text to a Windows GPU server running Qwen3-TTS, receives WAV audio back.
+Two-machine TTS pipeline: Mac CLI client sends text to a Windows GPU server running Qwen3-TTS, receives WAV audio back. Includes a web UI for interactive testing and voice management.
 
 ## Architecture
 
 ```
-Mac (client)                          Windows RTX 5090 (server)
-┌─────────────┐    HTTP POST /speak   ┌──────────────────────────────┐
-│  CLI client  │ ──────────────────► │  FastAPI server (:9800)       │
-│  or curl     │ ◄────────────────── │  ├─ Qwen3-1.7B summarizer    │
-│  (afplay)    │    WAV response      │  ├─ TTS 1.7B-CustomVoice     │
-└─────────────┘                       │  └─ TTS 1.7B-Base (cloning)  │
+Mac (browser / CLI)                   Windows RTX 5090 (server)
+┌─────────────┐    HTTP              ┌──────────────────────────────┐
+│  Web UI      │ ──────────────────► │  FastAPI server (:9800)       │
+│  CLI client  │ ◄────────────────── │  ├─ Qwen3-1.7B summarizer    │
+│  or curl     │                     │  ├─ TTS 1.7B-CustomVoice     │
+└─────────────┘                       │  ├─ TTS 1.7B-Base (cloning)  │
+                                      │  └─ Alpine.js SPA (static)   │
                                       └──────────────────────────────┘
 ```
 
-## API
+## Web UI
+
+Open `http://10.18.1.2:9800` in a browser. Four tabs:
+
+- **Playground** — Type text, pick a preset or manual settings, generate speech with in-browser playback
+- **Presets** — Create/edit/delete named parameter combos (speaker, voice, language, instruct, speed, summarize)
+- **Voices** — Browse 9 preset speakers and cloned voices, upload new voice references, preview audio
+- **History** — List recent generations, replay audio, filter by preset, reuse settings
+
+### Default Presets
+
+| Preset | Voice | Language | Instruct | Speed | Summarize |
+|--------|-------|----------|----------|-------|-----------|
+| Claude Response | Aiden (preset) | English | Fast-paced, clear and direct delivery. Cold, concise tone. | 1.3x | Yes |
+| DnD Narrator (Dolina) | dolina (clone) | Spanish | — | 1.0x | No |
+| DnD Narrator (Aiden) | Aiden (preset) | Spanish | Deep, slow and dramatic narrator voice. Calm and mysterious tone, like a fantasy storyteller. | 1.0x | No |
+
+Presets are stored in `server/presets.json` and editable from the UI.
+
+## CLI API
 
 ### `POST /speak`
 
-Single endpoint for all TTS. Returns `audio/wav`.
+Original endpoint for CLI/curl usage. Returns `audio/wav`.
 
 **Request body:**
 
@@ -72,6 +92,20 @@ curl -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello", "instruct": "Fast-paced, clear and energetic delivery"}' -o out.wav
 ```
+
+### Management API
+
+Used by the web UI. All endpoints under `/api/*`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/config` | Server defaults + speaker/language lists |
+| `POST` | `/api/speak` | Synthesize + save to history (form data) |
+| `GET/POST/DELETE` | `/api/presets` | CRUD for named presets |
+| `GET/POST/DELETE` | `/api/voices` | List, upload, delete voices |
+| `GET` | `/api/voices/{name}/preview` | Voice reference audio |
+| `GET/DELETE` | `/api/history` | List or clear history |
+| `GET/DELETE` | `/api/history/{id}/audio` | Get or delete history entry |
 
 ## Voice Modes
 
@@ -134,6 +168,8 @@ cd server
 pip install -r requirements.txt
 python server.py
 ```
+
+The server starts on port 9800, serves the web UI at `/`, and the CLI API at `/speak`.
 
 Requires ffmpeg with librubberband for speed control. Install via [gyan.dev essentials build](https://www.gyan.dev/ffmpeg/builds/).
 
