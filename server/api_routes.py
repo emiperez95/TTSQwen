@@ -2,20 +2,14 @@ import time
 import wave
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
 from config import (
     PRESET_SPEAKERS, TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE,
 )
 
 router = APIRouter(prefix="/api")
-
-
-def _get_deps():
-    """Get shared server instances (set by server.py on startup)."""
-    from server import tts, summarizer, voice_mgr, history_mgr
-    return tts, summarizer, voice_mgr, history_mgr
 
 
 def _wav_duration(wav_bytes: bytes) -> float:
@@ -28,7 +22,6 @@ def _wav_duration(wav_bytes: bytes) -> float:
 
 @router.get("/config")
 async def get_config():
-    tts, *_ = _get_deps()
     return {
         "default_speaker": TTS_VOICE,
         "default_language": TTS_LANGUAGE,
@@ -43,6 +36,7 @@ async def get_config():
 
 @router.post("/speak")
 async def api_speak(
+    request: Request,
     text: str = Form(...),
     summarize: bool = Form(True),
     speaker: str = Form(None),
@@ -51,7 +45,9 @@ async def api_speak(
     speed: float = Form(1.0),
     voice: str = Form(None),
 ):
-    tts, summarizer, _, history_mgr = _get_deps()
+    tts = request.app.state.tts
+    summarizer = request.app.state.summarizer
+    history_mgr = request.app.state.history_mgr
 
     t0 = time.time()
     text_input = text
@@ -100,18 +96,18 @@ async def api_speak(
 # ─── Voices ───
 
 @router.get("/voices")
-async def list_voices():
-    _, _, voice_mgr, _ = _get_deps()
-    return voice_mgr.list_voices()
+async def list_voices(request: Request):
+    return request.app.state.voice_mgr.list_voices()
 
 
 @router.post("/voices")
 async def upload_voice(
+    request: Request,
     name: str = Form(...),
     audio: UploadFile = File(...),
     transcript: str = Form(""),
 ):
-    _, _, voice_mgr, _ = _get_deps()
+    voice_mgr = request.app.state.voice_mgr
     wav_bytes = await audio.read()
     try:
         voice_mgr.add_voice(name, wav_bytes, transcript or None)
@@ -121,8 +117,8 @@ async def upload_voice(
 
 
 @router.delete("/voices/{name}")
-async def delete_voice(name: str):
-    _, _, voice_mgr, _ = _get_deps()
+async def delete_voice(request: Request, name: str):
+    voice_mgr = request.app.state.voice_mgr
     try:
         voice_mgr.delete_voice(name)
     except ValueError as e:
@@ -133,10 +129,9 @@ async def delete_voice(name: str):
 
 
 @router.get("/voices/{name}/preview")
-async def preview_voice(name: str):
-    _, _, voice_mgr, _ = _get_deps()
+async def preview_voice(request: Request, name: str):
     try:
-        audio = voice_mgr.get_voice_audio(name)
+        audio = request.app.state.voice_mgr.get_voice_audio(name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return Response(content=audio, media_type="audio/wav")
@@ -145,30 +140,26 @@ async def preview_voice(name: str):
 # ─── History ───
 
 @router.get("/history")
-async def list_history(limit: int = 50):
-    _, _, _, history_mgr = _get_deps()
-    return history_mgr.list(limit)
+async def list_history(request: Request, limit: int = 50):
+    return request.app.state.history_mgr.list(limit)
 
 
 @router.get("/history/{entry_id}/audio")
-async def get_history_audio(entry_id: str):
-    _, _, _, history_mgr = _get_deps()
+async def get_history_audio(request: Request, entry_id: str):
     try:
-        audio = history_mgr.get_audio(entry_id)
+        audio = request.app.state.history_mgr.get_audio(entry_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return Response(content=audio, media_type="audio/wav")
 
 
 @router.delete("/history/{entry_id}")
-async def delete_history_entry(entry_id: str):
-    _, _, _, history_mgr = _get_deps()
-    history_mgr.delete(entry_id)
+async def delete_history_entry(request: Request, entry_id: str):
+    request.app.state.history_mgr.delete(entry_id)
     return {"status": "ok"}
 
 
 @router.delete("/history")
-async def clear_history():
-    _, _, _, history_mgr = _get_deps()
-    history_mgr.clear()
+async def clear_history(request: Request):
+    request.app.state.history_mgr.clear()
     return {"status": "ok"}

@@ -43,6 +43,12 @@ async def startup():
     tts = TTSEngine()
     voice_mgr = VoiceManager()
     history_mgr = HistoryManager()
+    # Store on app.state so api_routes can access them
+    # (module globals differ between __main__ and server module)
+    app.state.summarizer = summarizer
+    app.state.tts = tts
+    app.state.voice_mgr = voice_mgr
+    app.state.history_mgr = history_mgr
 
 
 @app.get("/health")
