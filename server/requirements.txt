@@ -10,3 +10,4 @@ soundfile
 numpy
 accelerate
 python-multipart
+python-dotenv

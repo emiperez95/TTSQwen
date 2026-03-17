@@ -1,4 +1,9 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # Models
 SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "Qwen/Qwen3-1.7B")
@@ -18,6 +23,13 @@ PORT = int(os.getenv("PORT", "9800"))
 
 # History
 HISTORY_MAX_ENTRIES = 200
+
+# Validation limits
+MAX_TEXT_LENGTH = 10_000
+MIN_SPEED = 0.5
+MAX_SPEED = 3.0
+VALID_LANGUAGES = {"English", "Chinese", "Japanese", "Korean", "Spanish",
+                   "German", "French", "Russian", "Portuguese", "Italian"}
 
 # Preset speakers metadata (name → {language, description})
 PRESET_SPEAKERS = {

@@ -1,4 +1,6 @@
+import asyncio
 import json
+import secrets
 import time
 import wave
 from datetime import datetime
@@ -8,7 +10,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from config import (
-    PRESET_SPEAKERS, TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE,
+    MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED, PRESET_SPEAKERS,
+    TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE, VALID_LANGUAGES,
 )
 
 router = APIRouter(prefix="/api")
@@ -64,32 +67,48 @@ async def api_speak(
     voice: str = Form(None),
     preset: str = Form(None),
 ):
+    # Validate inputs
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    if len(text) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=422, detail=f"text exceeds maximum length of {MAX_TEXT_LENGTH}")
+    if not (MIN_SPEED <= speed <= MAX_SPEED):
+        raise HTTPException(status_code=422, detail=f"speed must be between {MIN_SPEED} and {MAX_SPEED}")
+    if speaker and speaker not in PRESET_SPEAKERS:
+        raise HTTPException(status_code=422, detail=f"unknown speaker: {speaker}")
+    if language and language not in VALID_LANGUAGES:
+        raise HTTPException(status_code=422, detail=f"unsupported language: {language}")
+
     tts = request.app.state.tts
     summarizer = request.app.state.summarizer
     history_mgr = request.app.state.history_mgr
+    lock = request.app.state.inference_lock
 
-    t0 = time.time()
-    text_input = text
+    async with lock:
+        t0 = time.time()
+        text_input = text
 
-    if summarize and summarizer:
-        text_spoken = summarizer.summarize(text)
-        t_summarize = time.time() - t0
-    else:
-        text_spoken = text
-        t_summarize = 0.0
+        if summarize and summarizer:
+            text_spoken = await asyncio.to_thread(summarizer.summarize, text)
+            t_summarize = time.time() - t0
+        else:
+            text_spoken = text
+            t_summarize = 0.0
 
-    t1 = time.time()
-    wav_bytes = tts.synthesize(
-        text_spoken,
-        speaker=speaker,
-        language=language,
-        instruct=instruct or None,
-        speed=speed,
-        voice=voice,
-    )
-    t_tts = time.time() - t1
+        t1 = time.time()
+        wav_bytes = await asyncio.to_thread(
+            tts.synthesize,
+            text_spoken,
+            speaker=speaker,
+            language=language,
+            instruct=instruct or None,
+            speed=speed,
+            voice=voice,
+        )
+        t_tts = time.time() - t1
 
-    entry_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{id(wav_bytes) % 0xFFFF:04x}"
+    entry_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{secrets.token_hex(4)}"
     duration = _wav_duration(wav_bytes)
 
     metadata = {

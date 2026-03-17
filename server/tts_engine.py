@@ -132,10 +132,11 @@ class TTSEngine:
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:
         """Apply tempo change using ffmpeg's rubberband filter."""
-        inpath = tempfile.mktemp(suffix=".wav")
-        outpath = tempfile.mktemp(suffix=".wav")
+        in_fd, inpath = tempfile.mkstemp(suffix=".wav")
+        out_fd, outpath = tempfile.mkstemp(suffix=".wav")
         try:
-            with open(inpath, "wb") as f:
+            os.close(out_fd)
+            with os.fdopen(in_fd, "wb") as f:
                 f.write(wav_bytes)
             subprocess.run(
                 [

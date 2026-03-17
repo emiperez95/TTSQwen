@@ -1,14 +1,20 @@
+import asyncio
+import gc
 import time
 import urllib.parse
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from config import HOST, PORT
+from config import (
+    HOST, PORT, MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED,
+    PRESET_SPEAKERS, VALID_LANGUAGES,
+)
 from summarizer import Summarizer
 from tts_engine import TTSEngine
 from voice_manager import VoiceManager
@@ -17,13 +23,28 @@ from api_routes import router as api_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="TTSQwen")
-app.include_router(api_router)
 
-summarizer: Summarizer | None = None
-tts: TTSEngine | None = None
-voice_mgr: VoiceManager | None = None
-history_mgr: HistoryManager | None = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    app.state.summarizer = Summarizer()
+    app.state.tts = TTSEngine()
+    app.state.voice_mgr = VoiceManager()
+    app.state.history_mgr = HistoryManager()
+    app.state.inference_lock = asyncio.Semaphore(1)
+    yield
+    # Shutdown — free CUDA memory
+    import torch
+    del app.state.tts
+    del app.state.summarizer
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("CUDA memory released.")
+
+
+app = FastAPI(title="TTSQwen", lifespan=lifespan)
+app.include_router(api_router)
 
 
 class SpeakRequest(BaseModel):
@@ -35,20 +56,36 @@ class SpeakRequest(BaseModel):
     speed: float | None = None
     voice: str | None = None
 
+    @field_validator("text")
+    @classmethod
+    def text_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("text must not be empty")
+        if len(v) > MAX_TEXT_LENGTH:
+            raise ValueError(f"text exceeds maximum length of {MAX_TEXT_LENGTH}")
+        return v
 
-@app.on_event("startup")
-async def startup():
-    global summarizer, tts, voice_mgr, history_mgr
-    summarizer = Summarizer()
-    tts = TTSEngine()
-    voice_mgr = VoiceManager()
-    history_mgr = HistoryManager()
-    # Store on app.state so api_routes can access them
-    # (module globals differ between __main__ and server module)
-    app.state.summarizer = summarizer
-    app.state.tts = tts
-    app.state.voice_mgr = voice_mgr
-    app.state.history_mgr = history_mgr
+    @field_validator("speed")
+    @classmethod
+    def speed_in_range(cls, v: float | None) -> float | None:
+        if v is not None and not (MIN_SPEED <= v <= MAX_SPEED):
+            raise ValueError(f"speed must be between {MIN_SPEED} and {MAX_SPEED}")
+        return v
+
+    @field_validator("speaker")
+    @classmethod
+    def valid_speaker(cls, v: str | None) -> str | None:
+        if v is not None and v not in PRESET_SPEAKERS:
+            raise ValueError(f"unknown speaker: {v}")
+        return v
+
+    @field_validator("language")
+    @classmethod
+    def valid_language(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_LANGUAGES:
+            raise ValueError(f"unsupported language: {v}")
+        return v
 
 
 @app.get("/health")
@@ -57,27 +94,33 @@ async def health():
 
 
 @app.post("/speak")
-async def speak(req: SpeakRequest):
-    t0 = time.time()
+async def speak(req: SpeakRequest, request: Request):
+    summarizer = request.app.state.summarizer
+    tts = request.app.state.tts
+    lock = request.app.state.inference_lock
 
-    if req.summarize and summarizer:
-        text = summarizer.summarize(req.text)
-        t_summarize = time.time() - t0
-        print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
-    else:
-        text = req.text
-        t_summarize = 0
+    async with lock:
+        t0 = time.time()
 
-    t1 = time.time()
-    wav_bytes = tts.synthesize(
-        text,
-        speaker=req.speaker,
-        language=req.language,
-        instruct=req.instruct,
-        speed=req.speed,
-        voice=req.voice,
-    )
-    t_tts = time.time() - t1
+        if req.summarize and summarizer:
+            text = await asyncio.to_thread(summarizer.summarize, req.text)
+            t_summarize = time.time() - t0
+            print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
+        else:
+            text = req.text
+            t_summarize = 0
+
+        t1 = time.time()
+        wav_bytes = await asyncio.to_thread(
+            tts.synthesize,
+            text,
+            speaker=req.speaker,
+            language=req.language,
+            instruct=req.instruct,
+            speed=req.speed,
+            voice=req.voice,
+        )
+        t_tts = time.time() - t1
 
     print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
 
