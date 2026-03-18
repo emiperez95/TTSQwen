@@ -107,10 +107,37 @@ async def health():
 @app.get("/status")
 async def status(request: Request):
     manager = request.app.state.model_manager
-    return {
+    keep_alive = manager.keep_alive_remaining()
+    resp = {
         "idle_timeout": MODEL_IDLE_TIMEOUT,
         "models": manager.status(),
     }
+    if keep_alive > 0:
+        resp["keep_alive_remaining"] = round(keep_alive, 0)
+    return resp
+
+
+@app.post("/keep-alive")
+async def keep_alive(request: Request):
+    """Prevent model unloading for a set number of hours."""
+    body = await request.json()
+    hours = body.get("hours", 1)
+    if not isinstance(hours, (int, float)) or hours <= 0:
+        raise HTTPException(400, "hours must be a positive number")
+    manager = request.app.state.model_manager
+    manager.keep_alive(hours)
+    return {
+        "keep_alive_hours": hours,
+        "keep_alive_remaining": round(manager.keep_alive_remaining(), 0),
+    }
+
+
+@app.delete("/keep-alive")
+async def cancel_keep_alive(request: Request):
+    """Cancel keep-alive, resume normal idle unloading."""
+    manager = request.app.state.model_manager
+    manager.cancel_keep_alive()
+    return {"keep_alive_remaining": 0}
 
 
 @app.get("/help")
@@ -171,7 +198,14 @@ GET /health
   Returns {{"status": "ok"}} when server is ready.
 
 GET /status
-  Returns model loading status and idle times.
+  Returns model loading status, idle times, and keep-alive remaining.
+
+POST /keep-alive
+  Prevent model unloading for a set duration.
+  Body: {{"hours": 2}}  (default: 1)
+
+DELETE /keep-alive
+  Cancel keep-alive, resume normal idle unloading.
 
 GET /help
   This help text.

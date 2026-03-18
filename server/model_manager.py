@@ -21,6 +21,7 @@ class ModelManager:
     def __init__(self, idle_timeout: int = 120):
         self._slots: dict[str, ModelSlot] = {}
         self._idle_timeout = idle_timeout
+        self._keep_alive_until: float = 0.0
         self._shutdown = False
 
     def register(
@@ -65,6 +66,20 @@ class ModelManager:
             torch.cuda.empty_cache()
         print(f"[ModelManager] {name} unloaded, VRAM freed.")
 
+    def keep_alive(self, hours: float):
+        """Prevent unloading for the given number of hours."""
+        self._keep_alive_until = time.time() + hours * 3600
+        remaining = self.keep_alive_remaining()
+        print(f"[ModelManager] Keep-alive set for {hours}h ({remaining:.0f}s)")
+
+    def keep_alive_remaining(self) -> float:
+        """Seconds remaining on keep-alive, 0 if expired."""
+        return max(0.0, self._keep_alive_until - time.time())
+
+    def cancel_keep_alive(self):
+        self._keep_alive_until = 0.0
+        print("[ModelManager] Keep-alive cancelled.")
+
     def status(self) -> list[dict]:
         now = time.time()
         result = []
@@ -83,6 +98,8 @@ class ModelManager:
             await asyncio.sleep(10)
             if self._shutdown:
                 break
+            if time.time() < self._keep_alive_until:
+                continue
             now = time.time()
             for slot in self._slots.values():
                 if slot.loaded and (now - slot.last_used) >= self._idle_timeout:
