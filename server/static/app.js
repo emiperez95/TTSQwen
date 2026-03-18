@@ -34,6 +34,7 @@ document.addEventListener('alpine:init', () => {
         config: null,
         presets: [],
         selectedPreset: '',
+        selectedVoice: '',
         text: '',
         summarize: true,
         speaker: '',
@@ -58,9 +59,23 @@ document.addEventListener('alpine:init', () => {
             this.presets = await presetsR.json();
 
             this.speaker = this.config.default_speaker;
+            this.selectedVoice = 'speaker:' + this.config.default_speaker;
             this.language = this.config.default_language;
             this.speed = this.config.default_speed;
             this.instruct = this.config.default_instruct;
+        },
+
+        onVoiceChange() {
+            const v = this.selectedVoice;
+            if (v.startsWith('voice:')) {
+                this.useClonedVoice = true;
+                this.voice = v.slice(6);
+                this.speaker = '';
+            } else {
+                this.useClonedVoice = false;
+                this.voice = '';
+                this.speaker = v.slice(8); // 'speaker:'.length
+            }
         },
 
         loadPreset() {
@@ -72,14 +87,11 @@ document.addEventListener('alpine:init', () => {
             this.speed = p.speed ?? 1.0;
             this.summarize = p.summarize ?? true;
             if (p.voice) {
-                this.useClonedVoice = true;
-                this.voice = p.voice;
-                this.speaker = '';
+                this.selectedVoice = 'voice:' + p.voice;
             } else {
-                this.useClonedVoice = false;
-                this.voice = '';
-                this.speaker = p.speaker || this.config.default_speaker;
+                this.selectedVoice = 'speaker:' + (p.speaker || this.config.default_speaker);
             }
+            this.onVoiceChange();
         },
 
         async generate() {
@@ -365,12 +377,11 @@ document.addEventListener('alpine:init', () => {
                     scope.selectedPreset = entry.preset;
                 }
                 if (entry.voice) {
-                    scope.useClonedVoice = true;
-                    scope.voice = entry.voice;
+                    scope.selectedVoice = 'voice:' + entry.voice;
                 } else {
-                    scope.useClonedVoice = false;
-                    scope.speaker = entry.speaker;
+                    scope.selectedVoice = 'speaker:' + entry.speaker;
                 }
+                scope.onVoiceChange();
             });
         },
 

@@ -57,12 +57,6 @@
                 <div class="form-row" style="margin-bottom: 12px">
                     <div>
                         <label class="checkbox-label">
-                            <input type="checkbox" x-model="useClonedVoice">
-                            Use cloned voice
-                        </label>
-                    </div>
-                    <div>
-                        <label class="checkbox-label">
                             <input type="checkbox" x-model="summarize">
                             Summarize text
                         </label>
@@ -70,22 +64,22 @@
                 </div>
 
                 <div class="form-row">
-                    <div x-show="!useClonedVoice">
-                        <label>Speaker</label>
-                        <select x-model="speaker">
-                            <template x-if="config">
-                                <template x-for="s in config.speakers" :key="s">
-                                    <option :value="s" x-text="s"></option>
+                    <div>
+                        <label>Voice</label>
+                        <select x-model="selectedVoice" @change="onVoiceChange()">
+                            <optgroup label="Preset Speakers">
+                                <template x-if="config">
+                                    <template x-for="s in config.speakers" :key="s">
+                                        <option :value="'speaker:' + s" x-text="s"></option>
+                                    </template>
                                 </template>
-                            </template>
-                        </select>
-                    </div>
-                    <div x-show="useClonedVoice">
-                        <label>Cloned Voice</label>
-                        <select x-model="voice">
-                            <option value="">-- select --</option>
-                            <template x-for="v in clonedVoices" :key="v.name">
-                                <option :value="v.name" x-text="v.name"></option>
+                            </optgroup>
+                            <template x-if="clonedVoices.length > 0">
+                                <optgroup label="Cloned Voices">
+                                    <template x-for="v in clonedVoices" :key="v.name">
+                                        <option :value="'voice:' + v.name" x-text="v.name"></option>
+                                    </template>
+                                </optgroup>
                             </template>
                         </select>
                     </div>
