@@ -333,7 +333,8 @@ document.addEventListener('alpine:init', () => {
             this.loading = true;
             try {
                 const r = await fetch('/api/history');
-                this.entries = await r.json();
+                const data = await r.json();
+                this.entries = data.map(e => ({ pinned: false, ...e }));
             } finally {
                 this.loading = false;
             }
