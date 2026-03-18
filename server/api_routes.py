@@ -237,6 +237,24 @@ async def get_history_audio(request: Request, entry_id: str):
     return Response(content=audio, media_type="audio/wav")
 
 
+@router.post("/history/{entry_id}/pin")
+async def pin_history_entry(request: Request, entry_id: str):
+    try:
+        request.app.state.history_mgr.pin(entry_id, pinned=True)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"status": "ok"}
+
+
+@router.post("/history/{entry_id}/unpin")
+async def unpin_history_entry(request: Request, entry_id: str):
+    try:
+        request.app.state.history_mgr.pin(entry_id, pinned=False)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"status": "ok"}
+
+
 @router.delete("/history/{entry_id}")
 async def delete_history_entry(request: Request, entry_id: str):
     request.app.state.history_mgr.delete(entry_id)

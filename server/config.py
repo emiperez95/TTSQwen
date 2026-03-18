@@ -23,7 +23,7 @@ PORT = int(os.getenv("PORT", "9800"))
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
 
 # History
-HISTORY_MAX_ENTRIES = 200
+HISTORY_MAX_ENTRIES = 50
 
 # Validation limits
 MAX_TEXT_LENGTH = 10_000

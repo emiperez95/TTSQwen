@@ -33,18 +33,20 @@ class HistoryManager:
 
         with self._lock:
             entries = self._load_index()
-            entries.insert(0, {"id": entry_id, **metadata})
+            entries.insert(0, {"id": entry_id, "pinned": False, **metadata})
 
-            # Evict oldest entries beyond limit
-            while len(entries) > HISTORY_MAX_ENTRIES:
-                old = entries.pop()
+            # Evict oldest unpinned entries beyond limit
+            unpinned = [e for e in entries if not e.get("pinned")]
+            while len(unpinned) > HISTORY_MAX_ENTRIES:
+                old = unpinned.pop()
+                entries.remove(old)
                 old_wav = HISTORY_DIR / f"{old['id']}.wav"
                 if old_wav.exists():
                     old_wav.unlink()
 
             self._save_index(entries)
 
-    def list(self, limit: int = 50) -> list[dict]:
+    def list(self, limit: int = 200) -> list[dict]:
         with self._lock:
             entries = self._load_index()
         return entries[:limit]
@@ -54,6 +56,17 @@ class HistoryManager:
         if not wav_path.exists():
             raise FileNotFoundError(f"History audio not found: {entry_id}")
         return wav_path.read_bytes()
+
+    def pin(self, entry_id: str, pinned: bool = True):
+        with self._lock:
+            entries = self._load_index()
+            for e in entries:
+                if e["id"] == entry_id:
+                    e["pinned"] = pinned
+                    break
+            else:
+                raise FileNotFoundError(f"History entry not found: {entry_id}")
+            self._save_index(entries)
 
     def delete(self, entry_id: str):
         with self._lock:
@@ -68,8 +81,11 @@ class HistoryManager:
     def clear(self):
         with self._lock:
             entries = self._load_index()
+            # Only clear unpinned entries
+            pinned = [e for e in entries if e.get("pinned")]
             for e in entries:
-                wav_path = HISTORY_DIR / f"{e['id']}.wav"
-                if wav_path.exists():
-                    wav_path.unlink()
-            self._save_index([])
+                if not e.get("pinned"):
+                    wav_path = HISTORY_DIR / f"{e['id']}.wav"
+                    if wav_path.exists():
+                        wav_path.unlink()
+            self._save_index(pinned)

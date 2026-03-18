@@ -362,6 +362,7 @@ audio {
 }
 
 .history-item:hover { border-color: var(--accent); }
+.history-pinned { border-left: 3px solid var(--accent); background: #1c2030; }
 
 .history-info {
     flex: 1;

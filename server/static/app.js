@@ -345,6 +345,17 @@ document.addEventListener('alpine:init', () => {
             return this.entries.filter(e => e.preset === this.filterPreset);
         },
 
+        async togglePin(entry) {
+            const action = entry.pinned ? 'unpin' : 'pin';
+            try {
+                const r = await fetch(`/api/history/${entry.id}/${action}`, { method: 'POST' });
+                if (!r.ok) throw new Error((await r.json()).detail);
+                entry.pinned = !entry.pinned;
+            } catch (e) {
+                Alpine.store('app').showToast(e.message, 'error');
+            }
+        },
+
         async deleteEntry(id) {
             try {
                 await fetch(`/api/history/${id}`, { method: 'DELETE' });

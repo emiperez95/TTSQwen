@@ -361,9 +361,12 @@
                 </template>
 
                 <template x-for="entry in filteredEntries" :key="entry.id">
-                    <div class="history-item">
+                    <div class="history-item" :class="{ 'history-pinned': entry.pinned }">
                         <div class="history-info">
-                            <div class="history-text" x-text="entry.text_input"></div>
+                            <div class="history-text">
+                                <span x-show="entry.pinned" title="Pinned" style="margin-right: 4px">&#128204;</span>
+                                <span x-text="entry.text_input"></span>
+                            </div>
                             <div class="history-meta">
                                 <template x-if="entry.preset">
                                     <span class="history-preset-badge" x-text="entry.preset"></span>
@@ -376,6 +379,9 @@
                             <audio :src="entry.audio_url" controls preload="none"></audio>
                         </div>
                         <div class="history-actions">
+                            <button class="btn btn-ghost btn-sm" @click="togglePin(entry)"
+                                    :title="entry.pinned ? 'Unpin' : 'Pin'"
+                                    x-text="entry.pinned ? 'Unpin' : 'Pin'"></button>
                             <button class="btn btn-ghost btn-sm" @click="reuseSettings(entry)"
                                     title="Reuse settings">Reuse</button>
                             <button class="btn btn-danger btn-sm" @click="deleteEntry(entry.id)"
