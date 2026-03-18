@@ -8,7 +8,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
@@ -98,6 +98,83 @@ class SpeakRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/help")
+async def help_text(request: Request):
+    from api_routes import _load_presets
+
+    voices = request.app.state.voice_mgr.list_voices()
+    presets = _load_presets()
+
+    speakers = "\n".join(
+        f"  - {name} ({meta['description']}, {meta['language']})"
+        for name, meta in PRESET_SPEAKERS.items()
+    )
+    cloned = "\n".join(
+        f"  - {v['name']}" for v in voices.get("cloned", [])
+    ) or "  (none)"
+    preset_lines = "\n".join(
+        f"  - {p['name']}: speaker={p.get('speaker') or p.get('voice')}, "
+        f"lang={p.get('language')}, speed={p.get('speed')}, summarize={p.get('summarize')}"
+        for p in presets
+    ) or "  (none)"
+    langs = ", ".join(sorted(VALID_LANGUAGES))
+
+    text = f"""\
+TTSQwen — Text-to-Speech API
+=============================
+
+POST /speak
+  Generate speech from text. Returns audio/wav.
+
+  Request body (JSON):
+    text      (string, required)  Text to synthesize (max {MAX_TEXT_LENGTH} chars)
+    summarize (bool, default true) Condense text into spoken summary first
+    speaker   (string)            Preset voice name (default: Aiden)
+    voice     (string)            Cloned voice name (overrides speaker)
+    language  (string)            {langs}
+    instruct  (string)            Style instruction (e.g. "Calm, slow delivery")
+    speed     (float)             Tempo multiplier ({MIN_SPEED}-{MAX_SPEED}, default 1.0)
+
+  Response: audio/wav binary
+  Response headers: X-Summarize-Time, X-TTS-Time, X-Spoken-Text
+
+  Example:
+    curl -X POST {request.base_url}speak \\
+      -H "Content-Type: application/json" \\
+      -d '{{"text": "Hello world", "summarize": false}}' -o out.wav
+
+GET /health
+  Returns {{"status": "ok"}} when server is ready.
+
+GET /help
+  This help text.
+
+Preset speakers:
+{speakers}
+
+Cloned voices (use via "voice" field):
+{cloned}
+
+Presets (pre-configured combos):
+{preset_lines}
+
+Languages: {langs}
+
+Speed guide:
+  1.0x  Default, relaxed
+  1.3x  Brisk, good for notifications
+  1.5x  Background listening
+  2.0x  Max for trained listeners
+
+Tips:
+  - Use summarize=true (default) for long/technical text
+  - Use summarize=false for short text or exact wording
+  - Male voices (Aiden, Ryan) handle higher speeds better
+  - instruct controls delivery style, keep it short and descriptive
+"""
+    return PlainTextResponse(text)
 
 
 @app.post("/speak")
