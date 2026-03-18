@@ -13,6 +13,8 @@ from config import (
     MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED, PRESET_SPEAKERS,
     TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE, VALID_LANGUAGES,
 )
+from ssml_parser import is_ssml, parse_ssml
+from audio_ops import list_sfx
 
 router = APIRouter(prefix="/api")
 
@@ -51,6 +53,14 @@ async def get_config():
         "speakers": list(PRESET_SPEAKERS.keys()),
         "languages": ["English", "Chinese", "Japanese", "Korean", "Spanish"],
     }
+
+
+# ─── SFX ───
+
+@router.get("/sfx")
+async def get_sfx():
+    """List available sound effect names for SSML <audio> and <bg> tags."""
+    return list_sfx()
 
 
 # ─── Speak ───
@@ -101,28 +111,49 @@ async def api_speak(
     history_mgr = request.app.state.history_mgr
     lock = request.app.state.inference_lock
 
+    ssml_mode = is_ssml(text)
+    if ssml_mode:
+        summarize = False
+
     async with lock:
         t0 = time.time()
         text_input = text
 
-        if summarize and summarizer:
-            text_spoken = await asyncio.to_thread(summarizer.summarize, text)
-            t_summarize = time.time() - t0
-        else:
-            text_spoken = text
+        if ssml_mode:
+            doc = parse_ssml(text)
+            text_spoken = doc.plain_text()
             t_summarize = 0.0
 
-        t1 = time.time()
-        wav_bytes = await asyncio.to_thread(
-            tts.synthesize,
-            text_spoken,
-            speaker=speaker,
-            language=language,
-            instruct=instruct or None,
-            speed=speed,
-            voice=voice,
-        )
-        t_tts = time.time() - t1
+            t1 = time.time()
+            wav_bytes = await asyncio.to_thread(
+                tts.synthesize_ssml,
+                doc,
+                speaker=speaker,
+                language=language,
+                instruct=instruct or None,
+                speed=speed,
+                voice=voice,
+            )
+            t_tts = time.time() - t1
+        else:
+            if summarize and summarizer:
+                text_spoken = await asyncio.to_thread(summarizer.summarize, text)
+                t_summarize = time.time() - t0
+            else:
+                text_spoken = text
+                t_summarize = 0.0
+
+            t1 = time.time()
+            wav_bytes = await asyncio.to_thread(
+                tts.synthesize,
+                text_spoken,
+                speaker=speaker,
+                language=language,
+                instruct=instruct or None,
+                speed=speed,
+                voice=voice,
+            )
+            t_tts = time.time() - t1
 
     entry_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{secrets.token_hex(4)}"
     duration = _wav_duration(wav_bytes)

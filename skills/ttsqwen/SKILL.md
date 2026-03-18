@@ -91,6 +91,41 @@ Use via the `voice` field. `instruct` is NOT supported for cloned voices.
 | espanol_neutro | Neutral Latin American Spanish male      |
 | jeremy_irons   | Jeremy Irons — distinguished British male|
 
+## SSML-like Markup
+
+Text can include tags for sound effects, pauses, and background ambient audio. When any tag is detected, summarization is automatically skipped.
+
+### Tags (self-closing)
+
+| Tag | Description |
+|-----|-------------|
+| `<audio src="name"/>` | Insert a sound effect from `server/sfx/` |
+| `<break time="500ms"/>` | Insert silence (`ms` or `s` units, max 10s) |
+| `<bg src="name" vol="0.15"/>` | Mix looped background audio underneath entire output |
+
+### Available SFX
+
+Check what sound effects are available:
+```bash
+curl -s http://10.18.1.2:9800/api/sfx
+```
+
+### SSML Examples
+
+```bash
+# Pauses between sentences
+curl -s -X POST http://10.18.1.2:9800/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text": "The door creaks open. <break time=\"1.5s\"/> A cold wind rushes in.", "preset": "DnD Narrator (Aiden)"}' -o out.wav
+
+# Sound effect + background ambient
+curl -s -X POST http://10.18.1.2:9800/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text": "The old man coughs. <audio src=\"cough\"/> <break time=\"800ms\"/> The treasure lies beneath the mountain. <bg src=\"tavern\" vol=\"0.12\"/>", "preset": "DnD Narrator (Dolina)"}' -o out.wav
+```
+
+Plain text (no tags) works exactly as before — fully backward compatible.
+
 ## Usage Examples
 
 ```bash
@@ -122,6 +157,8 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 - **Use `summarize: false`** for short text or exact wording
 - **`instruct`** only works with preset speakers, NOT cloned voices
 - **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
+- **SSML tags** (`<audio>`, `<break>`, `<bg>`) enable sound effects, pauses, and ambient audio — great for DnD narration
+- **Check available SFX** with `GET /api/sfx` before using `<audio>` or `<bg>` tags
 - Output is always `audio/wav` (PCM 16-bit, 24kHz)
 - To play on Mac: pipe to `afplay` or save to file
 - For latest info: `curl http://10.18.1.2:9800/help`

@@ -25,6 +25,9 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9800"))
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
 
+# SFX / SSML
+SFX_DIR = Path(__file__).parent / "sfx"
+
 # History
 HISTORY_MAX_ENTRIES = 50
 

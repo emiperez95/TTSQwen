@@ -14,6 +14,8 @@ from config import (
     TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEED, TTS_VOICE,
 )
 from model_manager import ModelManager
+from ssml_parser import SSMLDocument, SpeechSegment, BreakSegment, AudioSegment
+from audio_ops import generate_silence, load_sfx, concatenate_wavs, mix_background
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -140,6 +142,53 @@ class TTSEngine:
         )
         # Note: generate_voice_clone does not support instruct
         return model.generate_voice_clone(**kwargs)
+
+    def synthesize_ssml(
+        self,
+        doc: SSMLDocument,
+        speaker: str | None = None,
+        language: str | None = None,
+        instruct: str | None = None,
+        speed: float | None = None,
+        voice: str | None = None,
+    ) -> bytes:
+        """Synthesize an SSML document: speech segments via TTS, breaks as silence, audio as SFX."""
+        effective_speed = speed if speed is not None else TTS_SPEED
+
+        wav_parts: list[bytes] = []
+        for seg in doc.segments:
+            if isinstance(seg, SpeechSegment):
+                # Synthesize at speed=1.0; we apply speed to the final result
+                wav_parts.append(
+                    self.synthesize(
+                        seg.text,
+                        speaker=speaker,
+                        language=language,
+                        instruct=instruct,
+                        speed=1.0,
+                        voice=voice,
+                    )
+                )
+            elif isinstance(seg, BreakSegment):
+                wav_parts.append(generate_silence(seg.duration_ms))
+            elif isinstance(seg, AudioSegment):
+                wav_parts.append(load_sfx(seg.name))
+
+        if not wav_parts:
+            wav_parts.append(generate_silence(100))
+
+        result = concatenate_wavs(wav_parts)
+
+        # Mix background if present
+        if doc.background:
+            bg_wav = load_sfx(doc.background.name)
+            result = mix_background(result, bg_wav, volume=doc.background.volume)
+
+        # Apply speed to final combined audio
+        if effective_speed != 1.0:
+            result = self._apply_speed(result, effective_speed)
+
+        return result
 
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:

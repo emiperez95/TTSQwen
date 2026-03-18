@@ -21,6 +21,7 @@ from tts_engine import TTSEngine
 from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
+from ssml_parser import is_ssml, parse_ssml
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -194,6 +195,22 @@ POST /speak
       -H "Content-Type: application/json" \\
       -d '{{"text": "Hello world", "summarize": false}}' -o out.wav
 
+  SSML-like markup:
+    Text can include tags for sound effects, pauses, and background audio.
+    When tags are detected, summarization is automatically skipped.
+
+    Tags (self-closing):
+      <audio src="name"/>        Insert sound effect from server/sfx/
+      <break time="500ms"/>      Insert silence (ms or s units, max 10s)
+      <bg src="name" vol="0.15"/> Mix looped background audio underneath
+
+    Example:
+      The old man coughs. <audio src="cough"/> <break time="800ms"/>
+      Then he whispers. <bg src="tavern" vol="0.12"/>
+
+GET /api/sfx
+  List available sound effect names for <audio> and <bg> tags.
+
 GET /health
   Returns {{"status": "ok"}} when server is ready.
 
@@ -259,28 +276,49 @@ async def speak(req: SpeakRequest, request: Request):
     tts = request.app.state.tts
     lock = request.app.state.inference_lock
 
+    ssml_mode = is_ssml(req.text)
+    if ssml_mode:
+        req.summarize = False
+
     async with lock:
         t0 = time.time()
 
-        if req.summarize and summarizer:
-            text = await asyncio.to_thread(summarizer.summarize, req.text)
-            t_summarize = time.time() - t0
-            print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
-        else:
-            text = req.text
+        if ssml_mode:
+            doc = parse_ssml(req.text)
+            text = doc.plain_text()
             t_summarize = 0
 
-        t1 = time.time()
-        wav_bytes = await asyncio.to_thread(
-            tts.synthesize,
-            text,
-            speaker=req.speaker,
-            language=req.language,
-            instruct=req.instruct,
-            speed=req.speed,
-            voice=req.voice,
-        )
-        t_tts = time.time() - t1
+            t1 = time.time()
+            wav_bytes = await asyncio.to_thread(
+                tts.synthesize_ssml,
+                doc,
+                speaker=req.speaker,
+                language=req.language,
+                instruct=req.instruct,
+                speed=req.speed,
+                voice=req.voice,
+            )
+            t_tts = time.time() - t1
+        else:
+            if req.summarize and summarizer:
+                text = await asyncio.to_thread(summarizer.summarize, req.text)
+                t_summarize = time.time() - t0
+                print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
+            else:
+                text = req.text
+                t_summarize = 0
+
+            t1 = time.time()
+            wav_bytes = await asyncio.to_thread(
+                tts.synthesize,
+                text,
+                speaker=req.speaker,
+                language=req.language,
+                instruct=req.instruct,
+                speed=req.speed,
+                voice=req.voice,
+            )
+            t_tts = time.time() - t1
 
     print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
 
