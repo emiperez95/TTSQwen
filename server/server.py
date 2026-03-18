@@ -7,12 +7,13 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from config import (
-    HOST, PORT, MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED,
+    CORS_ORIGINS, HOST, PORT, MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED,
     PRESET_SPEAKERS, VALID_LANGUAGES,
 )
 from summarizer import Summarizer
@@ -44,6 +45,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TTSQwen", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(api_router)
 
 

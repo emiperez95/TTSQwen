@@ -20,6 +20,7 @@ TTS_SAMPLE_RATE = 24000
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9800"))
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
 
 # History
 HISTORY_MAX_ENTRIES = 200
