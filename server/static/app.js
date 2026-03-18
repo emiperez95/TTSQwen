@@ -324,6 +324,9 @@ document.addEventListener('alpine:init', () => {
                 fetch('/api/presets'),
             ]);
             this.presets = await presetsR.json();
+            this.$watch(() => Alpine.store('app').tab, (tab) => {
+                if (tab === 'history') this.load();
+            });
         },
 
         async load() {
