@@ -125,8 +125,7 @@ class TTSEngine:
             ref_text=ref_text,
             xvec_only=False,
         )
-        if instruct:
-            kwargs["instruct"] = instruct
+        # Note: generate_voice_clone does not support instruct
         return self.base_model.generate_voice_clone(**kwargs)
 
     @staticmethod
