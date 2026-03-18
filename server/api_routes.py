@@ -115,7 +115,7 @@ async def api_speak(
         "text_input": text_input[:500],
         "text_spoken": text_spoken[:500],
         "preset": preset,
-        "speaker": speaker or TTS_VOICE,
+        "speaker": None if voice else (speaker or TTS_VOICE),
         "voice": voice,
         "language": language or TTS_LANGUAGE,
         "speed": speed,
