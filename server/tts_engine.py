@@ -13,6 +13,7 @@ from faster_qwen3_tts import FasterQwen3TTS
 from config import (
     TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEED, TTS_VOICE,
 )
+from model_manager import ModelManager
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -21,54 +22,64 @@ VOICES_DIR = Path(__file__).parent / "voices"
 
 
 class TTSEngine:
-    def __init__(self):
-        # CustomVoice model for preset speakers
+    def __init__(self, manager: ModelManager):
+        self._manager = manager
+
+        manager.register(
+            "custom_voice",
+            load_fn=self._load_custom,
+            warmup_fn=self._warmup_custom,
+        )
+        manager.register(
+            "base",
+            load_fn=self._load_base,
+            warmup_fn=self._warmup_base,
+        )
+
+        print(f"TTS engine registered. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
+
+    @staticmethod
+    def _load_custom():
         print(f"Loading CustomVoice model: {TTS_MODEL}")
-        self.custom_model = FasterQwen3TTS.from_pretrained(
+        return FasterQwen3TTS.from_pretrained(
             TTS_MODEL,
             device="cuda",
             dtype=torch.bfloat16,
             attn_implementation="sdpa",
         )
 
-        # Base model for voice cloning
+    @staticmethod
+    def _load_base():
         print(f"Loading Base model: {TTS_MODEL_BASE}")
-        self.base_model = FasterQwen3TTS.from_pretrained(
+        return FasterQwen3TTS.from_pretrained(
             TTS_MODEL_BASE,
             device="cuda",
             dtype=torch.bfloat16,
             attn_implementation="sdpa",
         )
 
-        print(f"TTS ready. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
-        self._warmup()
-
-    def _warmup(self):
-        """Run warmup inference to capture CUDA graphs."""
-        print("Warming up CustomVoice model...")
-        t0 = time.time()
-        self.custom_model.generate_custom_voice(
+    @staticmethod
+    def _warmup_custom(model):
+        model.generate_custom_voice(
             text="Warmup.",
             language=TTS_LANGUAGE,
             speaker=TTS_VOICE,
         )
-        print(f"CustomVoice warmup done in {time.time() - t0:.1f}s")
 
-        # Warmup base model if any voice references exist
+    @staticmethod
+    def _warmup_base(model):
         voices = list(VOICES_DIR.glob("*.wav"))
-        if voices:
-            ref = voices[0]
-            ref_text_path = ref.with_suffix(".txt")
-            ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
-            print("Warming up Base model...")
-            t0 = time.time()
-            self.base_model.generate_voice_clone(
-                text="Warmup.",
-                language=TTS_LANGUAGE,
-                ref_audio=str(ref),
-                ref_text=ref_text,
-            )
-            print(f"Base warmup done in {time.time() - t0:.1f}s")
+        if not voices:
+            return
+        ref = voices[0]
+        ref_text_path = ref.with_suffix(".txt")
+        ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
+        model.generate_voice_clone(
+            text="Warmup.",
+            language=TTS_LANGUAGE,
+            ref_audio=str(ref),
+            ref_text=ref_text,
+        )
 
     def synthesize(
         self,
@@ -107,12 +118,14 @@ class TTSEngine:
         return wav_bytes
 
     def _generate_custom(self, text, language, speaker, instruct):
+        model = self._manager.get("custom_voice")
         kwargs = dict(text=text, language=language, speaker=speaker)
         if instruct:
             kwargs["instruct"] = instruct
-        return self.custom_model.generate_custom_voice(**kwargs)
+        return model.generate_custom_voice(**kwargs)
 
     def _generate_cloned(self, text, language, voice, instruct):
+        model = self._manager.get("base")
         ref_audio = VOICES_DIR / f"{voice}.wav"
         ref_text_path = VOICES_DIR / f"{voice}.txt"
         if not ref_audio.exists():
@@ -126,7 +139,7 @@ class TTSEngine:
             xvec_only=False,
         )
         # Note: generate_voice_clone does not support instruct
-        return self.base_model.generate_voice_clone(**kwargs)
+        return model.generate_voice_clone(**kwargs)
 
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:

@@ -1,5 +1,4 @@
 import asyncio
-import gc
 import time
 import urllib.parse
 from contextlib import asynccontextmanager
@@ -14,8 +13,9 @@ from pydantic import BaseModel, field_validator
 
 from config import (
     CORS_ORIGINS, HOST, PORT, MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED,
-    PRESET_SPEAKERS, VALID_LANGUAGES,
+    MODEL_IDLE_TIMEOUT, PRESET_SPEAKERS, VALID_LANGUAGES,
 )
+from model_manager import ModelManager
 from summarizer import Summarizer
 from tts_engine import TTSEngine
 from voice_manager import VoiceManager
@@ -28,20 +28,23 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    app.state.summarizer = Summarizer()
-    app.state.tts = TTSEngine()
+    manager = ModelManager(idle_timeout=MODEL_IDLE_TIMEOUT)
+    app.state.model_manager = manager
+    app.state.summarizer = Summarizer(manager)
+    app.state.tts = TTSEngine(manager)
     app.state.voice_mgr = VoiceManager()
     app.state.history_mgr = HistoryManager()
     app.state.inference_lock = asyncio.Semaphore(1)
+
+    idle_task = asyncio.create_task(manager.idle_checker(app.state.inference_lock))
+
+    print(f"Server ready (models load on first use, idle timeout: {MODEL_IDLE_TIMEOUT}s)")
     yield
-    # Shutdown — free CUDA memory
-    import torch
-    del app.state.tts
-    del app.state.summarizer
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    print("CUDA memory released.")
+
+    # Shutdown
+    idle_task.cancel()
+    manager.shutdown()
+    print("All models unloaded.")
 
 
 app = FastAPI(title="TTSQwen", lifespan=lifespan)
@@ -101,6 +104,15 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/status")
+async def status(request: Request):
+    manager = request.app.state.model_manager
+    return {
+        "idle_timeout": MODEL_IDLE_TIMEOUT,
+        "models": manager.status(),
+    }
+
+
 @app.get("/help")
 async def help_text(request: Request):
     from api_routes import _load_presets
@@ -157,6 +169,9 @@ POST /speak
 
 GET /health
   Returns {{"status": "ok"}} when server is ready.
+
+GET /status
+  Returns model loading status and idle times.
 
 GET /help
   This help text.

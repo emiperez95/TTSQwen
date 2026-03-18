@@ -1,0 +1,97 @@
+import asyncio
+import gc
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+import torch
+
+
+@dataclass
+class ModelSlot:
+    name: str
+    load_fn: Callable[[], Any]
+    warmup_fn: Callable[[Any], None] | None = None
+    model: Any = None
+    last_used: float = 0.0
+    loaded: bool = False
+
+
+class ModelManager:
+    def __init__(self, idle_timeout: int = 120):
+        self._slots: dict[str, ModelSlot] = {}
+        self._idle_timeout = idle_timeout
+        self._shutdown = False
+
+    def register(
+        self,
+        name: str,
+        load_fn: Callable[[], Any],
+        warmup_fn: Callable[[Any], None] | None = None,
+    ):
+        self._slots[name] = ModelSlot(name=name, load_fn=load_fn, warmup_fn=warmup_fn)
+
+    def get(self, name: str) -> Any:
+        """Return the loaded model, loading + warming up if needed.
+
+        Must be called from within the inference_lock.
+        """
+        slot = self._slots[name]
+        if not slot.loaded:
+            print(f"[ModelManager] Loading {name}...")
+            t0 = time.time()
+            slot.model = slot.load_fn()
+            print(f"[ModelManager] {name} loaded in {time.time() - t0:.1f}s")
+            if slot.warmup_fn:
+                print(f"[ModelManager] Warming up {name}...")
+                t0 = time.time()
+                slot.warmup_fn(slot.model)
+                print(f"[ModelManager] {name} warmup done in {time.time() - t0:.1f}s")
+            slot.loaded = True
+        slot.last_used = time.time()
+        return slot.model
+
+    def unload(self, name: str):
+        slot = self._slots[name]
+        if not slot.loaded:
+            return
+        print(f"[ModelManager] Unloading {name}...")
+        del slot.model
+        slot.model = None
+        slot.loaded = False
+        slot.last_used = 0.0
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print(f"[ModelManager] {name} unloaded, VRAM freed.")
+
+    def status(self) -> list[dict]:
+        now = time.time()
+        result = []
+        for name, slot in self._slots.items():
+            info = {"name": name, "loaded": slot.loaded}
+            if slot.loaded:
+                info["idle_seconds"] = round(now - slot.last_used, 1)
+            result.append(info)
+        return result
+
+    async def idle_checker(self, inference_lock: asyncio.Semaphore):
+        """Background task: check every 10s, unload idle models."""
+        if self._idle_timeout == 0:
+            return  # Never unload
+        while not self._shutdown:
+            await asyncio.sleep(10)
+            if self._shutdown:
+                break
+            now = time.time()
+            for slot in self._slots.values():
+                if slot.loaded and (now - slot.last_used) >= self._idle_timeout:
+                    async with inference_lock:
+                        # Re-check inside lock — model may have been used
+                        if slot.loaded and (time.time() - slot.last_used) >= self._idle_timeout:
+                            await asyncio.to_thread(self.unload, slot.name)
+
+    def shutdown(self):
+        self._shutdown = True
+        for name in list(self._slots):
+            self.unload(name)

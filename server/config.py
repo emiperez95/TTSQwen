@@ -17,6 +17,9 @@ TTS_INSTRUCT = os.getenv("TTS_INSTRUCT", "")
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 TTS_SAMPLE_RATE = 24000
 
+# Model management
+MODEL_IDLE_TIMEOUT = int(os.getenv("MODEL_IDLE_TIMEOUT", "120"))  # seconds, 0=never unload
+
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9800"))
