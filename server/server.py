@@ -56,6 +56,7 @@ app.include_router(api_router)
 
 class SpeakRequest(BaseModel):
     text: str
+    preset: str | None = None
     summarize: bool = True
     speaker: str | None = None
     language: str | None = None
@@ -130,6 +131,7 @@ POST /speak
 
   Request body (JSON):
     text      (string, required)  Text to synthesize (max {MAX_TEXT_LENGTH} chars)
+    preset    (string)            Use a named preset (fills in all other fields)
     summarize (bool, default true) Condense text into spoken summary first
     speaker   (string)            Preset voice name (default: Aiden)
     voice     (string)            Cloned voice name (overrides speaker)
@@ -137,10 +139,18 @@ POST /speak
     instruct  (string)            Style instruction (e.g. "Calm, slow delivery")
     speed     (float)             Tempo multiplier ({MIN_SPEED}-{MAX_SPEED}, default 1.0)
 
+  When using a preset, only text is required. Explicit fields override preset defaults.
+
   Response: audio/wav binary
   Response headers: X-Summarize-Time, X-TTS-Time, X-Spoken-Text
 
-  Example:
+  Examples:
+    # Using a preset (simplest)
+    curl -X POST {request.base_url}speak \\
+      -H "Content-Type: application/json" \\
+      -d '{{"text": "Hello world", "preset": "Claude Response"}}' -o out.wav
+
+    # Manual settings
     curl -X POST {request.base_url}speak \\
       -H "Content-Type: application/json" \\
       -d '{{"text": "Hello world", "summarize": false}}' -o out.wav
@@ -179,6 +189,23 @@ Tips:
 
 @app.post("/speak")
 async def speak(req: SpeakRequest, request: Request):
+    # Resolve preset: preset fields are defaults, explicit fields override
+    if req.preset:
+        from api_routes import _load_presets
+        presets = _load_presets()
+        p = next((p for p in presets if p["name"] == req.preset), None)
+        if p:
+            if req.speaker is None and req.voice is None:
+                req.voice = p.get("voice")
+                req.speaker = p.get("speaker")
+            if req.language is None:
+                req.language = p.get("language")
+            if req.instruct is None:
+                req.instruct = p.get("instruct", "")
+            if req.speed is None:
+                req.speed = p.get("speed")
+            req.summarize = p.get("summarize", req.summarize)
+
     summarizer = request.app.state.summarizer
     tts = request.app.state.tts
     lock = request.app.state.inference_lock

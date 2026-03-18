@@ -67,6 +67,22 @@ async def api_speak(
     voice: str = Form(None),
     preset: str = Form(None),
 ):
+    # Resolve preset defaults
+    if preset:
+        presets = _load_presets()
+        p = next((px for px in presets if px["name"] == preset), None)
+        if p:
+            if not speaker and not voice:
+                voice = p.get("voice")
+                speaker = p.get("speaker")
+            if not language:
+                language = p.get("language")
+            if not instruct:
+                instruct = p.get("instruct", "")
+            if speed == 1.0:
+                speed = p.get("speed", 1.0)
+            summarize = p.get("summarize", summarize)
+
     # Validate inputs
     text = text.strip()
     if not text:
