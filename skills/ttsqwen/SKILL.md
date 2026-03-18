@@ -8,13 +8,18 @@ allowed-tools: Bash(curl:*)
 
 TTS server running at `http://10.18.1.2:9800`. Converts text to speech using Qwen3-TTS models on a GPU server.
 
+For the latest API docs, presets, and voices, check `GET /help`:
+```bash
+curl -s http://10.18.1.2:9800/help
+```
+
 ## Quick Start
 
 ```bash
-# Generate speech (returns WAV audio)
+# Simplest: use a preset (only text required)
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello world"}' -o output.wav
+  -d '{"text": "Hello world", "preset": "Claude Response"}' -o output.wav
 
 # Health check
 curl -s http://10.18.1.2:9800/health
@@ -22,17 +27,20 @@ curl -s http://10.18.1.2:9800/health
 
 ## POST /speak
 
-Returns `audio/wav`. All fields except `text` are optional.
+Returns `audio/wav`. When using a preset, only `text` is required.
 
 | Field       | Type   | Default     | Description                                              |
 |-------------|--------|-------------|----------------------------------------------------------|
-| `text`      | string | (required)  | Text to synthesize                                       |
-| `summarize` | bool   | `true`      | Condense text into 2-8 spoken sentences before synthesis |
+| `text`      | string | (required)  | Text to synthesize (max 10000 chars)                     |
+| `preset`    | string | `null`      | Named preset — fills in all other fields automatically   |
+| `summarize` | bool   | `true`      | Condense text into spoken summary before synthesis       |
 | `speaker`   | string | `"Aiden"`   | Preset voice (see below)                                 |
-| `language`  | string | `"English"` | English, Spanish, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Italian |
-| `instruct`  | string | `""`        | Style instruction (e.g. `"Calm, relaxed delivery"`)      |
-| `speed`     | float  | `1.0`       | Tempo multiplier (1.0–2.0 recommended)                   |
 | `voice`     | string | `null`      | Cloned voice name (overrides `speaker`)                  |
+| `language`  | string | `"English"` | English, Spanish, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Italian |
+| `instruct`  | string | `""`        | Style instruction (e.g. `"Calm, relaxed delivery"`) — preset speakers only |
+| `speed`     | float  | `1.0`       | Tempo multiplier (0.5–3.0, default 1.0)                 |
+
+When using a preset, explicit fields override preset defaults.
 
 ### Response Headers
 
@@ -42,7 +50,22 @@ Returns `audio/wav`. All fields except `text` are optional.
 | `X-TTS-Time`       | TTS generation time in seconds |
 | `X-Spoken-Text`    | URL-encoded text that was spoken |
 
+## Presets
+
+Use presets for the simplest API calls. Just `text` + `preset` name.
+
+| Preset                 | Voice              | Language | Speed | Summarize |
+|------------------------|--------------------|----------|-------|-----------|
+| Claude Response        | Aiden (preset)     | English  | 1.3x  | Yes       |
+| Alfred                 | michael_caine (clone) | English | 1.0x | No        |
+| Jarvis                 | Aiden (preset)     | English  | 1.1x  | No        |
+| Asistente IA           | rioplatense (clone)| Spanish  | 1.0x  | No        |
+| DnD Narrator (Dolina)  | dolina (clone)     | Spanish  | 1.0x  | No        |
+| DnD Narrator (Aiden)   | Aiden (preset)     | Spanish  | 1.0x  | No        |
+
 ## Preset Speakers
+
+9 built-in voices with style control via `instruct`.
 
 | Speaker    | Style                               | Native Language |
 |------------|-------------------------------------|-----------------|
@@ -56,49 +79,49 @@ Returns `audio/wav`. All fields except `text` are optional.
 | Ono_Anna   | Playful Japanese female             | Japanese        |
 | Sohee      | Warm Korean female                  | Korean          |
 
-## Presets (Pre-configured Combos)
+## Cloned Voices
 
-| Preset                 | Speaker/Voice | Language | Speed | Summarize | Instruct |
-|------------------------|---------------|----------|-------|-----------|----------|
-| Claude Response        | Aiden         | English  | 1.3x  | Yes       | Fast-paced, clear and direct delivery. Cold, concise tone. |
-| DnD Narrator (Dolina)  | dolina (clone)| Spanish  | 1.0x  | No        | — |
-| DnD Narrator (Aiden)   | Aiden         | Spanish  | 1.0x  | No        | Deep, slow and dramatic narrator voice. Calm and mysterious tone. |
+Use via the `voice` field. `instruct` is NOT supported for cloned voices.
+
+| Voice          | Description                              |
+|----------------|------------------------------------------|
+| michael_caine  | Michael Caine — warm British male        |
+| rioplatense    | Rioplatense Spanish male                 |
+| dolina         | Dolina — Argentine narrator              |
+| espanol_neutro | Neutral Latin American Spanish male      |
+| jeremy_irons   | Jeremy Irons — distinguished British male|
 
 ## Usage Examples
 
 ```bash
-# Default: Aiden, English, with summarization
+# Using a preset (simplest — recommended)
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Long text that will be summarized first..."}' -o out.wav
+  -d '{"text": "Hello world", "preset": "Alfred"}' -o out.wav
 
-# Direct TTS without summarization
+# Spanish AI assistant
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Say this exactly as written", "summarize": false}' -o out.wav
+  -d '{"text": "Buenos días, el sistema está listo.", "preset": "Asistente IA"}' -o out.wav
 
-# Specific speaker + faster speed
+# Manual: specific speaker + speed
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello", "speaker": "Ryan", "speed": 1.5}' -o out.wav
+  -d '{"text": "Hello", "speaker": "Ryan", "speed": 1.5, "summarize": false}' -o out.wav
 
-# Voice clone (Spanish)
+# Manual: voice clone
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hola mundo", "voice": "dolina", "language": "Spanish", "summarize": false}' -o out.wav
-
-# With style instruction
-curl -s -X POST http://10.18.1.2:9800/speak \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Welcome", "instruct": "Whispered, intimate delivery"}' -o out.wav
+  -d '{"text": "Hola mundo", "voice": "rioplatense", "language": "Spanish", "summarize": false}' -o out.wav
 ```
 
 ## Guidelines
 
-- **Use `summarize: true`** (default) for long or technical text — it strips code, markdown, and condenses to natural speech
-- **Use `summarize: false`** for short text or when exact wording matters
-- **Speed 1.0–1.3x** for most use cases; male voices (Aiden, Ryan) handle higher speeds better
-- **`instruct`** controls delivery style — keep it short and descriptive
-- **`voice`** overrides `speaker` — use it for cloned voices only
+- **Use presets** whenever possible — simplest API, just text + preset name
+- **Use `summarize: true`** (default) for long/technical text
+- **Use `summarize: false`** for short text or exact wording
+- **`instruct`** only works with preset speakers, NOT cloned voices
+- **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
 - Output is always `audio/wav` (PCM 16-bit, 24kHz)
 - To play on Mac: pipe to `afplay` or save to file
+- For latest info: `curl http://10.18.1.2:9800/help`
