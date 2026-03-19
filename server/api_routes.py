@@ -137,7 +137,7 @@ async def api_speak(
             t_tts = time.time() - t1
         else:
             if summarize and summarizer:
-                text_spoken = await asyncio.to_thread(summarizer.summarize, text)
+                text_spoken = await asyncio.to_thread(summarizer.summarize, text, language)
                 t_summarize = time.time() - t0
             else:
                 text_spoken = text

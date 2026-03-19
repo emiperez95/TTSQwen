@@ -301,7 +301,7 @@ async def speak(req: SpeakRequest, request: Request):
             t_tts = time.time() - t1
         else:
             if req.summarize and summarizer:
-                text = await asyncio.to_thread(summarizer.summarize, req.text)
+                text = await asyncio.to_thread(summarizer.summarize, req.text, req.language)
                 t_summarize = time.time() - t0
                 print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
             else:
