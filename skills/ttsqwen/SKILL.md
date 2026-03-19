@@ -60,8 +60,7 @@ Use presets for the simplest API calls. Just `text` + `preset` name.
 | Alfred                 | michael_caine (clone) | English | 1.0x | No        |
 | Jarvis                 | Aiden (preset)     | English  | 1.1x  | No        |
 | Asistente IA           | rioplatense (clone)| Spanish  | 1.0x  | No        |
-| DnD Narrator (Dolina)  | dolina (clone)     | Spanish  | 1.0x  | No        |
-| DnD Narrator (Aiden)   | Aiden (preset)     | Spanish  | 1.0x  | No        |
+| DnD Narrator           | dnd_narrator (clone)| Spanish | 1.0x  | No        |
 
 ## Preset Speakers
 
@@ -85,6 +84,7 @@ Use via the `voice` field. `instruct` is NOT supported for cloned voices.
 
 | Voice          | Description                              |
 |----------------|------------------------------------------|
+| dnd_narrator   | DnD narrator — Spanish fantasy storyteller|
 | michael_caine  | Michael Caine — warm British male        |
 | rioplatense    | Rioplatense Spanish male                 |
 | dolina         | Dolina — Argentine narrator              |
@@ -116,12 +116,12 @@ curl -s http://10.18.1.2:9800/api/sfx
 # Pauses between sentences
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "The door creaks open. <break time=\"1.5s\"/> A cold wind rushes in.", "preset": "DnD Narrator (Aiden)"}' -o out.wav
+  -d '{"text": "The door creaks open. <break time=\"1.5s\"/> A cold wind rushes in.", "preset": "DnD Narrator"}' -o out.wav
 
 # Sound effect + background ambient
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "The old man coughs. <audio src=\"cough\"/> <break time=\"800ms\"/> The treasure lies beneath the mountain. <bg src=\"tavern\" vol=\"0.12\"/>", "preset": "DnD Narrator (Dolina)"}' -o out.wav
+  -d '{"text": "The old man coughs. <audio src=\"cough\"/> <break time=\"800ms\"/> The treasure lies beneath the mountain. <bg src=\"tavern\" vol=\"0.12\"/>", "preset": "DnD Narrator"}' -o out.wav
 ```
 
 Plain text (no tags) works exactly as before — fully backward compatible.
