@@ -97,11 +97,14 @@ class TTSEngine:
         instruct = instruct if instruct is not None else TTS_INSTRUCT
         speed = speed if speed is not None else TTS_SPEED
 
+        t0 = time.time()
         if voice:
             wavs, sr = self._generate_cloned(text, language, voice, instruct)
         else:
             wavs, sr = self._generate_custom(text, language, speaker or TTS_VOICE, instruct)
+        t_generate = time.time() - t0
 
+        t1 = time.time()
         audio = wavs[0]
         if isinstance(audio, torch.Tensor):
             audio = audio.cpu().numpy()
@@ -113,9 +116,20 @@ class TTSEngine:
         buf = io.BytesIO()
         sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
         wav_bytes = buf.getvalue()
+        t_encode = time.time() - t1
 
+        t_speed = 0.0
         if speed != 1.0:
+            t2 = time.time()
             wav_bytes = self._apply_speed(wav_bytes, speed)
+            t_speed = time.time() - t2
+
+        duration_s = len(audio) / sr
+        print(
+            f"[TTS] generate={t_generate:.2f}s encode={t_encode:.2f}s speed_adj={t_speed:.2f}s "
+            f"| audio={duration_s:.1f}s {len(wav_bytes)//1024}KB "
+            f"| input={len(text)} chars | voice={'clone:'+voice if voice else speaker or TTS_VOICE}"
+        )
 
         return wav_bytes
 
