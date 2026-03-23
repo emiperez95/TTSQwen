@@ -67,6 +67,7 @@ class SpeakRequest(BaseModel):
     instruct: str | None = None
     speed: float | None = None
     voice: str | None = None
+    summarize_prompt: str | None = None
 
     @field_validator("text")
     @classmethod
@@ -270,6 +271,8 @@ async def speak(req: SpeakRequest, request: Request):
                 req.instruct = p.get("instruct", "")
             if req.speed is None:
                 req.speed = p.get("speed")
+            if req.summarize_prompt is None:
+                req.summarize_prompt = p.get("summarize_prompt")
             req.summarize = p.get("summarize", req.summarize)
 
     summarizer = request.app.state.summarizer
@@ -301,7 +304,7 @@ async def speak(req: SpeakRequest, request: Request):
             t_tts = time.time() - t1
         else:
             if req.summarize and summarizer:
-                text = await asyncio.to_thread(summarizer.summarize, req.text, req.language)
+                text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
                 t_summarize = time.time() - t0
                 print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
             else:

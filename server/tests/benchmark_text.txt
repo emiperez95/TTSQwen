@@ -1,0 +1,43 @@
+iOS Speech-to-Text Options
+
+1. Web Speech API on iOS Safari
+
+Doesn't work. iOS Safari technically feature-detects it but it doesn't actually function reliably. Apple deliberately limits it. Not viable.
+
+2. iOS Keyboard Dictation (free, zero code)
+
+The microphone button on the iOS keyboard already works in our text input — you might already be using it. It's on-device, free, and we don't need to change anything. The limitation is we can't trigger it programmatically — it's user-initiated only.
+
+3. MediaRecorder + Server-Side Whisper
+
+This actually works on iOS Safari (since iOS 14.3). Flow:
+- Tap a record button → capture audio via MediaRecorder API
+- Upload to hive server → forward to Whisper (your server or OpenAI API)
+- Return transcribed text
+- ~2-5s latency depending on audio length
+
+4. Native iOS App (Swift/SwiftUI)
+
+Night and day better for voice:
+- SFSpeechRecognizer — on-device, free, offline, real-time streaming transcription
+- Push notifications for session status
+- Background audio, Siri integration
+- But: requires building, signing, deploying a whole iOS app
+
+Comparison for our use case
+
+┌─────────────────────────┬────────┬───────────┬───────────┬───────────────┐
+│        Approach         │ Effort │  Latency  │  Quality  │ Works Offline │
+├─────────────────────────┼────────┼───────────┼───────────┼───────────────┤
+│ Keyboard dictation      │ Zero   │ Real-time │ Good      │ Yes           │
+├─────────────────────────┼────────┼───────────┼───────────┼───────────────┤
+│ MediaRecorder + Whisper │ Medium │ 2-5s      │ Excellent │ No            │
+├─────────────────────────┼────────┼───────────┼───────────┼───────────────┤
+│ Native app              │ High   │ Real-time │ Excellent │ Yes           │
+└─────────────────────────┴────────┴───────────┴───────────┴───────────────┘
+
+My take
+
+The iOS keyboard dictation already solves this for free — just tap the microphone icon on the keyboard in our existing text input. If you want something better (dedicated record button, no keyboard needed), MediaRecorder + your Whisper server is the pragmatic choice — it works on iOS Safari today, and you already have server infrastructure. A native app would be ideal but is a much bigger investment for what's currently a lightweight dashboard.
+
+Want me to explore the MediaRecorder + Whisper path, or is the keyboard dictation sufficient for now?

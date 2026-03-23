@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TTS Summarizer Benchmark</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #fff; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .card { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 1.25rem; }
+  .card.original { grid-column: 1 / -1; border-color: #333; }
+  .card h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.75rem; }
+  .card .label { font-size: 0.75rem; color: #666; margin-bottom: 0.5rem; }
+  .card pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 0.85rem; line-height: 1.6; color: #ccc; }
+  .card.original pre { color: #999; max-height: 300px; overflow-y: auto; }
+  .stats { display: flex; gap: 1rem; margin-top: 0.75rem; flex-wrap: wrap; }
+  .stat { font-size: 0.75rem; color: #666; background: #1a1a1a; padding: 0.25rem 0.5rem; border-radius: 4px; }
+  .stat b { color: #aaa; }
+  .prompt { font-size: 0.75rem; color: #555; background: #111; padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; max-height: 80px; overflow-y: auto; font-style: italic; }
+</style>
+</head>
+<body>
+
+<h1>TTS Summarizer Benchmark</h1>
+
+<div class="grid">
+
+  <div class="card original">
+    <h2>Original Text</h2>
+    <div class="stats">
+      <span class="stat"><b>1847</b> chars</span>
+    </div>
+    <pre style="margin-top: 0.75rem;">iOS Speech-to-Text Options
+
+1. Web Speech API on iOS Safari
+
+Doesn't work. iOS Safari technically feature-detects it but it doesn't actually function reliably. Apple deliberately limits it. Not viable.
+
+2. iOS Keyboard Dictation (free, zero code)
+
+The microphone button on the iOS keyboard already works in our text input — you might already be using it. It's on-device, free, and we don't need to change anything. The limitation is we can't trigger it programmatically — it's user-initiated only.
+
+3. MediaRecorder + Server-Side Whisper
+
+This actually works on iOS Safari (since iOS 14.3). Flow:
+- Tap a record button → capture audio via MediaRecorder API
+- Upload to hive server → forward to Whisper (your server or OpenAI API)
+- Return transcribed text
+- ~2-5s latency depending on audio length
+
+4. Native iOS App (Swift/SwiftUI)
+
+Night and day better for voice:
+- SFSpeechRecognizer — on-device, free, offline, real-time streaming transcription
+- Push notifications for session status
+- Background audio, Siri integration
+- But: requires building, signing, deploying a whole iOS app
+
+Comparison for our use case (table omitted — see source)
+
+My take
+
+The iOS keyboard dictation already solves this for free — just tap the microphone icon on the keyboard in our existing text input. If you want something better (dedicated record button, no keyboard needed), MediaRecorder + your Whisper server is the pragmatic choice — it works on iOS Safari today, and you already have server infrastructure. A native app would be ideal but is a much bigger investment for what's currently a lightweight dashboard.
+
+Want me to explore the MediaRecorder + Whisper path, or is the keyboard dictation sufficient for now?</pre>
+  </div>
+
+  <!-- Result 1: Default summarize prompt -->
+  <div class="card">
+    <h2>1. Default Prompt (summarize)</h2>
+    <div class="prompt">You are a text-to-speech preprocessor. Convert the input into a concise spoken summary. Rules: Remove code blocks, file paths, markdown formatting... Aim for 2-5 sentences...</div>
+    <pre>iOS Speech-to-Text Options:
+The Web Speech API doesn't work on iOS Safari due to Apple's restrictions. The iOS keyboard dictation is free and works already, just tap the microphone icon. MediaRecorder + Whisper is viable and works on iOS Safari, with low latency and good quality. A native app offers better performance but requires more effort. The keyboard dictation is sufficient for now, but MediaRecorder + Whisper is a good option if you want a dedicated record button.</pre>
+    <div class="stats">
+      <span class="stat"><b>477</b> chars</span>
+      <span class="stat"><b>26%</b> of original</span>
+      <span class="stat"><b>2.9s</b> summarize</span>
+      <span class="stat"><b>9.2s</b> TTS</span>
+      <span class="stat"><b>33.5s</b> audio</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

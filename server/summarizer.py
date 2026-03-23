@@ -29,10 +29,10 @@ class Summarizer:
         print("Summarizer loaded.")
         return tokenizer, model
 
-    def summarize(self, text: str, language: str | None = None) -> str:
+    def summarize(self, text: str, language: str | None = None, prompt: str | None = None) -> str:
         tokenizer, model = self._manager.get("summarizer")
 
-        system_prompt = SUMMARIZER_SYSTEM_PROMPT
+        system_prompt = prompt or SUMMARIZER_SYSTEM_PROMPT
         if language and language != "English":
             system_prompt += f"\n- You MUST write the summary in {language}. Do not translate to English."
 

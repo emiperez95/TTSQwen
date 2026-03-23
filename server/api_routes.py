@@ -76,6 +76,7 @@ async def api_speak(
     speed: float = Form(1.0),
     voice: str = Form(None),
     preset: str = Form(None),
+    summarize_prompt: str = Form(None),
 ):
     # Resolve preset defaults
     if preset:
@@ -91,6 +92,8 @@ async def api_speak(
                 instruct = p.get("instruct", "")
             if speed == 1.0:
                 speed = p.get("speed", 1.0)
+            if not summarize_prompt:
+                summarize_prompt = p.get("summarize_prompt")
             summarize = p.get("summarize", summarize)
 
     # Validate inputs
@@ -137,7 +140,7 @@ async def api_speak(
             t_tts = time.time() - t1
         else:
             if summarize and summarizer:
-                text_spoken = await asyncio.to_thread(summarizer.summarize, text, language)
+                text_spoken = await asyncio.to_thread(summarizer.summarize, text, language, summarize_prompt)
                 t_summarize = time.time() - t0
             else:
                 text_spoken = text
