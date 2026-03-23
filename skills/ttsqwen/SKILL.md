@@ -34,11 +34,12 @@ Returns `audio/wav`. When using a preset, only `text` is required.
 | `text`      | string | (required)  | Text to synthesize (max 10000 chars)                     |
 | `preset`    | string | `null`      | Named preset — fills in all other fields automatically   |
 | `summarize` | bool   | `true`      | Condense text into spoken summary before synthesis       |
-| `speaker`   | string | `"Aiden"`   | Preset voice (see below)                                 |
-| `voice`     | string | `null`      | Cloned voice name (overrides `speaker`)                  |
+| `voice`     | string | `"aiden"`   | Voice name (see cloned voices below)                     |
+| `speaker`   | string | `null`      | Preset speaker — loads CustomVoice model on demand, supports `instruct` |
 | `language`  | string | `"English"` | English, Spanish, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Italian |
-| `instruct`  | string | `""`        | Style instruction (e.g. `"Calm, relaxed delivery"`) — preset speakers only |
+| `instruct`  | string | `""`        | Style instruction (e.g. `"Calm, relaxed delivery"`) — `speaker` only, not `voice` |
 | `speed`     | float  | `1.0`       | Tempo multiplier (0.5–3.0, default 1.0)                 |
+| `summarize_prompt` | string | `null` | Custom system prompt for the summarizer (overrides default) |
 
 When using a preset, explicit fields override preset defaults.
 
@@ -56,15 +57,12 @@ Use presets for the simplest API calls. Just `text` + `preset` name.
 
 | Preset                 | Voice              | Language | Speed | Summarize |
 |------------------------|--------------------|----------|-------|-----------|
-| Claude Response        | Aiden (preset)     | English  | 1.3x  | Yes       |
-| Alfred                 | michael_caine (clone) | English | 1.0x | No        |
-| Jarvis                 | Aiden (preset)     | English  | 1.1x  | No        |
-| Asistente IA           | rioplatense (clone)| Spanish  | 1.0x  | No        |
+| Claude Response        | aiden (clone)      | English  | 1.3x  | Yes       |
 | DnD Narrator           | dnd_narrator (clone)| Spanish | 1.0x  | No        |
 
-## Preset Speakers
+## Preset Speakers (on-demand)
 
-9 built-in voices with style control via `instruct`.
+9 built-in voices via `speaker` field. Loads the CustomVoice model on demand (slower first call). Supports `instruct` for style control.
 
 | Speaker    | Style                               | Native Language |
 |------------|-------------------------------------|-----------------|
@@ -78,18 +76,27 @@ Use presets for the simplest API calls. Just `text` + `preset` name.
 | Ono_Anna   | Playful Japanese female             | Japanese        |
 | Sohee      | Warm Korean female                  | Korean          |
 
-## Cloned Voices
+## Voices
 
-Use via the `voice` field. `instruct` is NOT supported for cloned voices.
+Use via the `voice` field (default: `aiden`). These run on the Base model which stays loaded.
 
 | Voice          | Description                              |
 |----------------|------------------------------------------|
+| aiden          | Sunny American male, clear midrange (default) |
+| ryan           | Dynamic male, strong rhythmic drive      |
 | dnd_narrator   | DnD narrator — Spanish fantasy storyteller|
 | michael_caine  | Michael Caine — warm British male        |
 | rioplatense    | Rioplatense Spanish male                 |
 | dolina         | Dolina — Argentine narrator              |
 | espanol_neutro | Neutral Latin American Spanish male      |
 | jeremy_irons   | Jeremy Irons — distinguished British male|
+| vivian         | Bright, slightly edgy young female (Chinese) |
+| serena         | Warm, gentle young female (Chinese)      |
+| dylan          | Youthful Beijing male (Chinese)          |
+| eric           | Lively Chengdu male, slightly husky (Chinese) |
+| uncle_fu       | Seasoned male, low mellow timbre (Chinese) |
+| ono_anna       | Playful Japanese female                  |
+| sohee          | Warm Korean female                       |
 
 ## SSML-like Markup
 
@@ -153,9 +160,10 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 ## Guidelines
 
 - **Use presets** whenever possible — simplest API, just text + preset name
+- **Use `voice`** (not `speaker`) for fast responses — Base model stays loaded
+- **Use `speaker`** only if you need `instruct` style control — loads CustomVoice on demand
 - **Use `summarize: true`** (default) for long/technical text
 - **Use `summarize: false`** for short text or exact wording
-- **`instruct`** only works with preset speakers, NOT cloned voices
 - **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
 - **SSML tags** (`<audio>`, `<break>`, `<bg>`) enable sound effects, pauses, and ambient audio — great for DnD narration
 - **Check available SFX** with `GET /api/sfx` before using `<audio>` or `<bg>` tags
