@@ -15,6 +15,7 @@ class ModelSlot:
     model: Any = None
     last_used: float = 0.0
     loaded: bool = False
+    pinned: bool = False  # If True, never idle-unloaded
 
 
 class ModelManager:
@@ -29,8 +30,9 @@ class ModelManager:
         name: str,
         load_fn: Callable[[], Any],
         warmup_fn: Callable[[Any], None] | None = None,
+        pinned: bool = False,
     ):
-        self._slots[name] = ModelSlot(name=name, load_fn=load_fn, warmup_fn=warmup_fn)
+        self._slots[name] = ModelSlot(name=name, load_fn=load_fn, warmup_fn=warmup_fn, pinned=pinned)
 
     def get(self, name: str) -> Any:
         """Return the loaded model, loading + warming up if needed.
@@ -102,6 +104,8 @@ class ModelManager:
                 continue
             now = time.time()
             for slot in self._slots.values():
+                if slot.pinned:
+                    continue
                 if slot.loaded and (now - slot.last_used) >= self._idle_timeout:
                     async with inference_lock:
                         # Re-check inside lock — model may have been used

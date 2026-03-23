@@ -12,6 +12,7 @@ class Summarizer:
         manager.register(
             "summarizer",
             load_fn=self._load,
+            pinned=True,
         )
 
         print("Summarizer registered.")

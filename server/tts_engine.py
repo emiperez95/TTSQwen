@@ -11,7 +11,7 @@ import torch
 from faster_qwen3_tts import FasterQwen3TTS
 
 from config import (
-    TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEED, TTS_VOICE,
+    TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEAKER, TTS_SPEED, TTS_VOICE,
 )
 from model_manager import ModelManager
 from ssml_parser import SSMLDocument, SpeechSegment, BreakSegment, AudioSegment
@@ -36,6 +36,7 @@ class TTSEngine:
             "base",
             load_fn=self._load_base,
             warmup_fn=self._warmup_base,
+            pinned=True,
         )
 
         print(f"TTS engine registered. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
@@ -97,11 +98,16 @@ class TTSEngine:
         instruct = instruct if instruct is not None else TTS_INSTRUCT
         speed = speed if speed is not None else TTS_SPEED
 
+        # Resolve voice: explicit voice/speaker > defaults
+        # voice = clone via Base model, speaker = preset via CustomVoice
+        if not voice and not speaker:
+            voice = TTS_VOICE  # Default to clone voice
+
         t0 = time.time()
-        if voice:
-            wavs, sr = self._generate_cloned(text, language, voice, instruct)
+        if speaker:
+            wavs, sr = self._generate_custom(text, language, speaker, instruct)
         else:
-            wavs, sr = self._generate_custom(text, language, speaker or TTS_VOICE, instruct)
+            wavs, sr = self._generate_cloned(text, language, voice, instruct)
         t_generate = time.time() - t0
 
         t1 = time.time()
@@ -128,7 +134,7 @@ class TTSEngine:
         print(
             f"[TTS] generate={t_generate:.2f}s encode={t_encode:.2f}s speed_adj={t_speed:.2f}s "
             f"| audio={duration_s:.1f}s {len(wav_bytes)//1024}KB "
-            f"| input={len(text)} chars | voice={'clone:'+voice if voice else speaker or TTS_VOICE}"
+            f"| input={len(text)} chars | voice={'preset:'+speaker if speaker else 'clone:'+(voice or TTS_VOICE)}"
         )
 
         return wav_bytes

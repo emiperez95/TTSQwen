@@ -11,7 +11,8 @@ TTS_MODEL = os.getenv("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")
 TTS_MODEL_BASE = os.getenv("TTS_MODEL_BASE", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 
 # TTS settings
-TTS_VOICE = os.getenv("TTS_VOICE", "Aiden")
+TTS_VOICE = os.getenv("TTS_VOICE", "aiden")  # Default clone voice (Base model)
+TTS_SPEAKER = os.getenv("TTS_SPEAKER", "")  # Preset speaker (CustomVoice model, on-demand)
 TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "English")
 TTS_INSTRUCT = os.getenv("TTS_INSTRUCT", "")
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
