@@ -53,7 +53,7 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum(rate(tts_requests_total{voice=~\"$voice\"}[5m])) by (voice)",
+          "expr": "sum(rate(tts_requests_total{voice=~\"$voice\"}[$__rate_interval])) by (voice)",
           "legendFormat": "{{ voice }}"
         }
       ],
@@ -99,7 +99,7 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "rate(tts_generate_duration_seconds_sum[5m]) / rate(tts_generate_duration_seconds_count[5m])",
+          "expr": "tts_generate_duration_seconds_sum / tts_generate_duration_seconds_count",
           "legendFormat": "avg"
         }
       ],
@@ -127,7 +127,7 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "rate(tts_model_load_duration_seconds_sum[1h]) / rate(tts_model_load_duration_seconds_count[1h])",
+          "expr": "tts_model_load_duration_seconds_sum / tts_model_load_duration_seconds_count",
           "legendFormat": "avg"
         }
       ],
@@ -159,15 +159,15 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.5, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p99"
         }
       ],
@@ -185,11 +185,11 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.5, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p95"
         }
       ],
@@ -207,11 +207,11 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.5, sum(rate(tts_summarize_duration_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(tts_summarize_duration_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p95"
         }
       ],
@@ -229,11 +229,11 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.5, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[$__rate_interval])) by (le))",
           "legendFormat": "p95"
         }
       ],
@@ -251,7 +251,7 @@
       "datasource": { "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "(rate(tts_audio_duration_seconds_sum{voice=~\"$voice\"}[5m])) / (rate(tts_generate_duration_seconds_sum{voice=~\"$voice\"}[5m]))",
+          "expr": "(rate(tts_audio_duration_seconds_sum{voice=~\"$voice\"}[$__rate_interval])) / (rate(tts_generate_duration_seconds_sum{voice=~\"$voice\"}[$__rate_interval]))",
           "legendFormat": "{{ voice }}"
         }
       ],
