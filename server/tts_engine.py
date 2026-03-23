@@ -16,6 +16,7 @@ from config import (
 from model_manager import ModelManager
 from ssml_parser import SSMLDocument, SpeechSegment, BreakSegment, AudioSegment
 from audio_ops import generate_silence, load_sfx, concatenate_wavs, mix_background
+from telemetry import tracer, generate_duration, audio_output_duration
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -103,11 +104,14 @@ class TTSEngine:
         if not voice and not speaker:
             voice = TTS_VOICE  # Default to clone voice
 
+        voice_label = f"preset:{speaker}" if speaker else f"clone:{voice or TTS_VOICE}"
+
         t0 = time.time()
-        if speaker:
-            wavs, sr = self._generate_custom(text, language, speaker, instruct)
-        else:
-            wavs, sr = self._generate_cloned(text, language, voice, instruct)
+        with tracer.start_as_current_span("tts.generate", attributes={"tts.voice": voice_label}):
+            if speaker:
+                wavs, sr = self._generate_custom(text, language, speaker, instruct)
+            else:
+                wavs, sr = self._generate_cloned(text, language, voice, instruct)
         t_generate = time.time() - t0
 
         t1 = time.time()
@@ -131,10 +135,13 @@ class TTSEngine:
             t_speed = time.time() - t2
 
         duration_s = len(audio) / sr
+        generate_duration.record(t_generate, {"voice": voice_label})
+        audio_output_duration.record(duration_s, {"voice": voice_label})
+
         print(
             f"[TTS] generate={t_generate:.2f}s encode={t_encode:.2f}s speed_adj={t_speed:.2f}s "
             f"| audio={duration_s:.1f}s {len(wav_bytes)//1024}KB "
-            f"| input={len(text)} chars | voice={'preset:'+speaker if speaker else 'clone:'+(voice or TTS_VOICE)}"
+            f"| input={len(text)} chars | voice={voice_label}"
         )
 
         return wav_bytes

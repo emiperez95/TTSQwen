@@ -22,6 +22,10 @@ from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
 from ssml_parser import is_ssml, parse_ssml
+from telemetry import (
+    init_telemetry, shutdown_telemetry, tracer, request_counter,
+    summarize_duration, error_counter, input_chars,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -29,6 +33,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    init_telemetry()
+
     manager = ModelManager(idle_timeout=MODEL_IDLE_TIMEOUT)
     app.state.model_manager = manager
     app.state.summarizer = Summarizer(manager)
@@ -45,6 +51,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     idle_task.cancel()
     manager.shutdown()
+    shutdown_telemetry()
     print("All models unloaded.")
 
 
@@ -56,6 +63,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router)
+
+# Auto-instrument FastAPI (traces for all routes)
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+FastAPIInstrumentor.instrument_app(app)
 
 
 class SpeakRequest(BaseModel):
@@ -279,61 +290,76 @@ async def speak(req: SpeakRequest, request: Request):
     tts = request.app.state.tts
     lock = request.app.state.inference_lock
 
+    voice_label = req.voice or req.speaker or "aiden"
     ssml_mode = is_ssml(req.text)
     if ssml_mode:
         req.summarize = False
 
-    async with lock:
-        t0 = time.time()
+    with tracer.start_as_current_span("speak", attributes={
+        "tts.voice": voice_label,
+        "tts.ssml": ssml_mode,
+        "tts.summarize": req.summarize,
+        "tts.input_chars": len(req.text),
+    }) as span:
+        async with lock:
+            t0 = time.time()
 
-        if ssml_mode:
-            doc = parse_ssml(req.text)
-            text = doc.plain_text()
-            t_summarize = 0
-
-            t1 = time.time()
-            wav_bytes = await asyncio.to_thread(
-                tts.synthesize_ssml,
-                doc,
-                speaker=req.speaker,
-                language=req.language,
-                instruct=req.instruct,
-                speed=req.speed,
-                voice=req.voice,
-            )
-            t_tts = time.time() - t1
-        else:
-            if req.summarize and summarizer:
-                text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
-                t_summarize = time.time() - t0
-                print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
-            else:
-                text = req.text
+            if ssml_mode:
+                doc = parse_ssml(req.text)
+                text = doc.plain_text()
                 t_summarize = 0
 
-            t1 = time.time()
-            wav_bytes = await asyncio.to_thread(
-                tts.synthesize,
-                text,
-                speaker=req.speaker,
-                language=req.language,
-                instruct=req.instruct,
-                speed=req.speed,
-                voice=req.voice,
-            )
-            t_tts = time.time() - t1
+                t1 = time.time()
+                wav_bytes = await asyncio.to_thread(
+                    tts.synthesize_ssml,
+                    doc,
+                    speaker=req.speaker,
+                    language=req.language,
+                    instruct=req.instruct,
+                    speed=req.speed,
+                    voice=req.voice,
+                )
+                t_tts = time.time() - t1
+            else:
+                if req.summarize and summarizer:
+                    with tracer.start_as_current_span("summarize"):
+                        text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
+                    t_summarize = time.time() - t0
+                    summarize_duration.record(t_summarize)
+                    print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
+                else:
+                    text = req.text
+                    t_summarize = 0
 
-    print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
+                t1 = time.time()
+                wav_bytes = await asyncio.to_thread(
+                    tts.synthesize,
+                    text,
+                    speaker=req.speaker,
+                    language=req.language,
+                    instruct=req.instruct,
+                    speed=req.speed,
+                    voice=req.voice,
+                )
+                t_tts = time.time() - t1
 
-    return Response(
-        content=wav_bytes,
-        media_type="audio/wav",
-        headers={
-            "X-Summarize-Time": f"{t_summarize:.3f}",
-            "X-TTS-Time": f"{t_tts:.3f}",
-            "X-Spoken-Text": urllib.parse.quote(text[:200]),
-        },
-    )
+        request_counter.add(1, {"voice": voice_label, "endpoint": "/speak"})
+        input_chars.record(len(req.text), {"voice": voice_label})
+        span.set_attribute("tts.generate_time", t_tts)
+        span.set_attribute("tts.summarize_time", t_summarize)
+        span.set_attribute("tts.audio_bytes", len(wav_bytes))
+
+        print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
+
+        return Response(
+            content=wav_bytes,
+            media_type="audio/wav",
+            headers={
+                "X-Summarize-Time": f"{t_summarize:.3f}",
+                "X-TTS-Time": f"{t_tts:.3f}",
+                "X-Spoken-Text": urllib.parse.quote(text[:200]),
+            },
+        )
 
 
 @app.get("/")

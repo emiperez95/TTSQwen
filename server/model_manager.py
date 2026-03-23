@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import torch
 
+from telemetry import tracer, model_load_duration
+
 
 @dataclass
 class ModelSlot:
@@ -41,15 +43,17 @@ class ModelManager:
         """
         slot = self._slots[name]
         if not slot.loaded:
-            print(f"[ModelManager] Loading {name}...")
-            t0 = time.time()
-            slot.model = slot.load_fn()
-            print(f"[ModelManager] {name} loaded in {time.time() - t0:.1f}s")
-            if slot.warmup_fn:
-                print(f"[ModelManager] Warming up {name}...")
+            with tracer.start_as_current_span("model.load", attributes={"model.name": name}):
+                print(f"[ModelManager] Loading {name}...")
                 t0 = time.time()
-                slot.warmup_fn(slot.model)
-                print(f"[ModelManager] {name} warmup done in {time.time() - t0:.1f}s")
+                slot.model = slot.load_fn()
+                print(f"[ModelManager] {name} loaded in {time.time() - t0:.1f}s")
+                if slot.warmup_fn:
+                    print(f"[ModelManager] Warming up {name}...")
+                    t0_warmup = time.time()
+                    slot.warmup_fn(slot.model)
+                    print(f"[ModelManager] {name} warmup done in {time.time() - t0_warmup:.1f}s")
+                model_load_duration.record(time.time() - t0, {"model": name})
             slot.loaded = True
         slot.last_used = time.time()
         return slot.model

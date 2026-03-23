@@ -26,6 +26,9 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9800"))
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
 
+# Telemetry
+OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://10.18.1.1:4318")
+
 # SFX / SSML
 SFX_DIR = Path(__file__).parent / "sfx"
 
