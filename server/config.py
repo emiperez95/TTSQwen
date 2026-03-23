@@ -63,6 +63,7 @@ Rules:
 - For each, give a one-sentence verdict with its key tradeoff
 - End with the recommendation or conclusion if one exists
 - Write in plain spoken sentences — no bullet points, no markdown, no lists
+- Separate distinct topics or options with blank lines (paragraph breaks)
 - Use natural phrasing with contractions
 - Remove code, tables, URLs, and special characters
 - Expand abbreviations and numbers into spoken form
