@@ -82,6 +82,71 @@ The Web Speech API doesn't work on iOS Safari due to Apple's restrictions. The i
     </div>
   </div>
 
+  <!-- Result 2: Full normalize prompt -->
+  <div class="card">
+    <h2>2. Normalize (preserve all content)</h2>
+    <div class="prompt">You are a text-to-speech preprocessor. Rewrite the input so it sounds natural when read aloud. Preserve ALL information and meaning — do not summarize or shorten. Rules: Remove markdown/tables/bullets, convert lists to flowing sentences, expand abbreviations/symbols, use contractions...</div>
+    <pre>(output truncated in JSON response — 2146 chars actual, mostly echoed original verbatim with minimal rewriting. The model didn't transform the text much — it kept numbered lists, bullet structure, and formatting cues that don't work in speech.)</pre>
+    <div class="stats">
+      <span class="stat"><b>2146</b> chars</span>
+      <span class="stat"><b>116%</b> of original</span>
+      <span class="stat"><b>15.2s</b> summarize</span>
+      <span class="stat"><b>39.2s</b> TTS</span>
+      <span class="stat"><b>110.5s</b> audio</span>
+    </div>
+  </div>
+
+  <!-- Result 3: Balanced prompt -->
+  <div class="card">
+    <h2>3. Balanced (keep details, natural flow)</h2>
+    <div class="prompt">You are a text-to-speech preprocessor. Convert the input into clear, natural spoken text. Keep all important details but make it flow well when read aloud. Rules: Remove tables/code/markdown/bullets, convert structured content to natural sentences, expand abbreviations, use contractions, keep technical details — aim for about half the original length...</div>
+    <pre>iOS has a few options for voice input. The Web Speech API on iOS Safari doesn't work reliably, and Apple limits it. The keyboard dictation feature is free and works already on your text input — just tap the microphone icon. It's on-device, doesn't require any code, and doesn't need any changes. But it's user-initiated, so you can't trigger it programmatically.
+
+Another option is MediaRecorder + server-side Whisper. This works on iOS Safari since iOS 14.3. The process is: tap a record button, capture audio with MediaRecorder, upload to a server, forward to Whisper, and return the transcribed text. Latency is about two to five seconds depending on audio length.
+
+(continues — 1262 chars total, cut off in JSON at 500)</pre>
+    <div class="stats">
+      <span class="stat"><b>1262</b> chars</span>
+      <span class="stat"><b>68%</b> of original</span>
+      <span class="stat"><b>6.2s</b> summarize</span>
+      <span class="stat"><b>27.0s</b> TTS</span>
+      <span class="stat"><b>102.0s</b> audio</span>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Result 4: Concise briefing prompt -->
+  <div class="card">
+    <h2>4. Concise Briefing (cover all, give verdicts)</h2>
+    <div class="prompt">You are a text-to-speech preprocessor. Convert the input into a concise spoken briefing that covers all key points. Rules: Mention every option/feature — don't skip any. For each, give a one-sentence verdict with its key tradeoff. End with the recommendation. Write in plain spoken sentences — no bullet points, no markdown, no lists. Use contractions...</div>
+    <pre>iOS Speech-to-Text Options:
+
+iOS Safari doesn't support the Web Speech API reliably, and Apple limits it. Not viable.
+
+iOS Keyboard Dictation is free and already works in text input — just tap the microphone icon. It's on-device, but can't be triggered programmatically.
+
+MediaRecorder + Server-Side Whisper works on iOS Safari (since iOS 14.3). It's reliable, with 2-5s latency, and requires a server.
+
+Native iOS App (Swift/SwiftUI) offers better performance: SFSpeechRecognizer is on-device, free, offline, and real-time. It supports push notifications, background audio, and Siri. But it requires building and deploying an app.
+
+Comparison:
+- Keyboard dictation: Zero effort, real-time, good quality, works offline.
+- MediaRecorder + Whisper: Medium effort, 2-5s latency, excellent quality, no server.
+- Native app: High effort, real-time, excellent quality, works offline.
+
+My take: Keyboard dictation is free and sufficient for now. If you want more control, MediaRecorder + Whisper is pragmatic. A native app is ideal but costly.
+
+Want to explore MediaRecorder + Whisper, or is keyboard dictation enough?</pre>
+    <div class="stats">
+      <span class="stat"><b>1131</b> chars</span>
+      <span class="stat"><b>61%</b> of original</span>
+      <span class="stat"><b>7.4s</b> summarize</span>
+      <span class="stat"><b>36.0s</b> TTS</span>
+      <span class="stat"><b>96.2s</b> audio</span>
+    </div>
+  </div>
+
 </div>
 
 </body>
