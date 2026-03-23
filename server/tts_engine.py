@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import subprocess
 import tempfile
@@ -21,6 +22,8 @@ from telemetry import tracer, generate_duration, audio_output_duration
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
 
+log = logging.getLogger(__name__)
+
 VOICES_DIR = Path(__file__).parent / "voices"
 
 
@@ -40,11 +43,11 @@ class TTSEngine:
             pinned=True,
         )
 
-        print(f"TTS engine registered. Voice: {TTS_VOICE}, Language: {TTS_LANGUAGE}")
+        log.info("TTS engine registered. Voice: %s, Language: %s", TTS_VOICE, TTS_LANGUAGE)
 
     @staticmethod
     def _load_custom():
-        print(f"Loading CustomVoice model: {TTS_MODEL}")
+        log.info("Loading CustomVoice model: %s", TTS_MODEL)
         return FasterQwen3TTS.from_pretrained(
             TTS_MODEL,
             device="cuda",
@@ -54,7 +57,7 @@ class TTSEngine:
 
     @staticmethod
     def _load_base():
-        print(f"Loading Base model: {TTS_MODEL_BASE}")
+        log.info("Loading Base model: %s", TTS_MODEL_BASE)
         return FasterQwen3TTS.from_pretrained(
             TTS_MODEL_BASE,
             device="cuda",
@@ -138,10 +141,11 @@ class TTSEngine:
         generate_duration.record(t_generate, {"voice": voice_label})
         audio_output_duration.record(duration_s, {"voice": voice_label})
 
-        print(
-            f"[TTS] generate={t_generate:.2f}s encode={t_encode:.2f}s speed_adj={t_speed:.2f}s "
-            f"| audio={duration_s:.1f}s {len(wav_bytes)//1024}KB "
-            f"| input={len(text)} chars | voice={voice_label}"
+        log.info(
+            "[TTS] generate=%.2fs encode=%.2fs speed_adj=%.2fs "
+            "| audio=%.1fs %dKB | input=%d chars | voice=%s",
+            t_generate, t_encode, t_speed,
+            duration_s, len(wav_bytes) // 1024, len(text), voice_label,
         )
 
         return wav_bytes

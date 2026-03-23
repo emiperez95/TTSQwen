@@ -1,5 +1,6 @@
 import asyncio
 import gc
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -7,6 +8,8 @@ from typing import Any, Callable
 import torch
 
 from telemetry import tracer, model_load_duration
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,15 +47,15 @@ class ModelManager:
         slot = self._slots[name]
         if not slot.loaded:
             with tracer.start_as_current_span("model.load", attributes={"model.name": name}):
-                print(f"[ModelManager] Loading {name}...")
+                log.info("Loading %s...", name)
                 t0 = time.time()
                 slot.model = slot.load_fn()
-                print(f"[ModelManager] {name} loaded in {time.time() - t0:.1f}s")
+                log.info("%s loaded in %.1fs", name, time.time() - t0)
                 if slot.warmup_fn:
-                    print(f"[ModelManager] Warming up {name}...")
+                    log.info("Warming up %s...", name)
                     t0_warmup = time.time()
                     slot.warmup_fn(slot.model)
-                    print(f"[ModelManager] {name} warmup done in {time.time() - t0_warmup:.1f}s")
+                    log.info("%s warmup done in %.1fs", name, time.time() - t0_warmup)
                 model_load_duration.record(time.time() - t0, {"model": name})
             slot.loaded = True
         slot.last_used = time.time()
@@ -62,7 +65,7 @@ class ModelManager:
         slot = self._slots[name]
         if not slot.loaded:
             return
-        print(f"[ModelManager] Unloading {name}...")
+        log.info("Unloading %s...", name)
         del slot.model
         slot.model = None
         slot.loaded = False
@@ -70,13 +73,13 @@ class ModelManager:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        print(f"[ModelManager] {name} unloaded, VRAM freed.")
+        log.info("%s unloaded, VRAM freed.", name)
 
     def keep_alive(self, hours: float):
         """Prevent unloading for the given number of hours."""
         self._keep_alive_until = time.time() + hours * 3600
         remaining = self.keep_alive_remaining()
-        print(f"[ModelManager] Keep-alive set for {hours}h ({remaining:.0f}s)")
+        log.info("Keep-alive set for %sh (%.0fs)", hours, remaining)
 
     def keep_alive_remaining(self) -> float:
         """Seconds remaining on keep-alive, 0 if expired."""
@@ -84,7 +87,7 @@ class ModelManager:
 
     def cancel_keep_alive(self):
         self._keep_alive_until = 0.0
-        print("[ModelManager] Keep-alive cancelled.")
+        log.info("Keep-alive cancelled.")
 
     def status(self) -> list[dict]:
         now = time.time()

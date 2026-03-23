@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 import urllib.parse
 from contextlib import asynccontextmanager
@@ -27,6 +28,8 @@ from telemetry import (
     summarize_duration, error_counter, input_chars,
 )
 
+log = logging.getLogger(__name__)
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -45,14 +48,14 @@ async def lifespan(app: FastAPI):
 
     idle_task = asyncio.create_task(manager.idle_checker(app.state.inference_lock))
 
-    print(f"Server ready (models load on first use, idle timeout: {MODEL_IDLE_TIMEOUT}s)")
+    log.info("Server ready (models load on first use, idle timeout: %ds)", MODEL_IDLE_TIMEOUT)
     yield
 
     # Shutdown
     idle_task.cancel()
     manager.shutdown()
     shutdown_telemetry()
-    print("All models unloaded.")
+    log.info("All models unloaded.")
 
 
 app = FastAPI(title="TTSQwen", lifespan=lifespan)
@@ -326,7 +329,7 @@ async def speak(req: SpeakRequest, request: Request):
                         text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
                     t_summarize = time.time() - t0
                     summarize_duration.record(t_summarize)
-                    print(f"Summarized in {t_summarize:.2f}s: {text[:100]}...")
+                    log.info("Summarized in %.2fs: %s...", t_summarize, text[:100])
                 else:
                     text = req.text
                     t_summarize = 0
@@ -349,7 +352,7 @@ async def speak(req: SpeakRequest, request: Request):
         span.set_attribute("tts.summarize_time", t_summarize)
         span.set_attribute("tts.audio_bytes", len(wav_bytes))
 
-        print(f"TTS in {t_tts:.2f}s, {len(wav_bytes)} bytes")
+        log.info("TTS in %.2fs, %d bytes", t_tts, len(wav_bytes))
 
         return Response(
             content=wav_bytes,

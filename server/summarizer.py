@@ -1,8 +1,12 @@
+import logging
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from config import SUMMARIZER_MODEL, SUMMARIZER_SYSTEM_PROMPT
 from model_manager import ModelManager
+
+log = logging.getLogger(__name__)
 
 
 class Summarizer:
@@ -15,11 +19,11 @@ class Summarizer:
             pinned=True,
         )
 
-        print("Summarizer registered.")
+        log.info("Summarizer registered.")
 
     @staticmethod
     def _load():
-        print(f"Loading summarizer: {SUMMARIZER_MODEL}")
+        log.info("Loading summarizer: %s", SUMMARIZER_MODEL)
         tokenizer = AutoTokenizer.from_pretrained(SUMMARIZER_MODEL)
         model = AutoModelForCausalLM.from_pretrained(
             SUMMARIZER_MODEL,
@@ -27,7 +31,7 @@ class Summarizer:
             device_map="cuda:0",
         )
         model.eval()
-        print("Summarizer loaded.")
+        log.info("Summarizer loaded.")
         return tokenizer, model
 
     def summarize(self, text: str, language: str | None = None, prompt: str | None = None) -> str:
