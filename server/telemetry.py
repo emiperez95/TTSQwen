@@ -116,3 +116,13 @@ input_chars = meter.create_histogram(
     description="Input text length in characters",
     unit="chars",
 )
+request_duration = meter.create_histogram(
+    "tts.request.duration",
+    description="Total end-to-end request time",
+    unit="s",
+)
+model_loaded_gauge = meter.create_up_down_counter(
+    "tts.model.loaded",
+    description="Whether a model is currently loaded (1=loaded, 0=not)",
+    unit="1",
+)

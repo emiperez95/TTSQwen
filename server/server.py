@@ -25,7 +25,7 @@ from api_routes import router as api_router
 from ssml_parser import is_ssml, parse_ssml
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
-    summarize_duration, error_counter, input_chars,
+    summarize_duration, error_counter, input_chars, request_duration,
 )
 
 log = logging.getLogger(__name__)
@@ -346,13 +346,16 @@ async def speak(req: SpeakRequest, request: Request):
                 )
                 t_tts = time.time() - t1
 
+        t_total = time.time() - t0
         request_counter.add(1, {"voice": voice_label, "endpoint": "/speak"})
+        request_duration.record(t_total, {"voice": voice_label, "endpoint": "/speak"})
         input_chars.record(len(req.text), {"voice": voice_label})
         span.set_attribute("tts.generate_time", t_tts)
         span.set_attribute("tts.summarize_time", t_summarize)
+        span.set_attribute("tts.request_time", t_total)
         span.set_attribute("tts.audio_bytes", len(wav_bytes))
 
-        log.info("TTS in %.2fs, %d bytes", t_tts, len(wav_bytes))
+        log.info("Request %.2fs (summarize=%.2fs tts=%.2fs), %d bytes", t_total, t_summarize, t_tts, len(wav_bytes))
 
         return Response(
             content=wav_bytes,

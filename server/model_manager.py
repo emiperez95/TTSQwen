@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import torch
 
-from telemetry import tracer, model_load_duration
+from telemetry import tracer, model_load_duration, model_loaded_gauge
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ class ModelManager:
                     log.info("%s warmup done in %.1fs", name, time.time() - t0_warmup)
                 model_load_duration.record(time.time() - t0, {"model": name})
             slot.loaded = True
+            model_loaded_gauge.add(1, {"model": name})
         slot.last_used = time.time()
         return slot.model
 
@@ -69,6 +70,7 @@ class ModelManager:
         del slot.model
         slot.model = None
         slot.loaded = False
+        model_loaded_gauge.add(-1, {"model": name})
         slot.last_used = 0.0
         gc.collect()
         if torch.cuda.is_available():
