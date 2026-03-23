@@ -22,7 +22,7 @@ from tts_engine import TTSEngine
 from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
-from ssml_parser import is_ssml, parse_ssml
+from ssml_parser import is_ssml, inject_breaks, parse_ssml
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
     summarize_duration, error_counter, input_chars, request_duration,
@@ -334,16 +334,32 @@ async def speak(req: SpeakRequest, request: Request):
                     text = req.text
                     t_summarize = 0
 
+                # Auto-insert pauses at paragraph breaks
+                text = inject_breaks(text)
+
                 t1 = time.time()
-                wav_bytes = await asyncio.to_thread(
-                    tts.synthesize,
-                    text,
-                    speaker=req.speaker,
-                    language=req.language,
-                    instruct=req.instruct,
-                    speed=req.speed,
-                    voice=req.voice,
-                )
+                if is_ssml(text):
+                    doc = parse_ssml(text)
+                    wav_bytes = await asyncio.to_thread(
+                        tts.synthesize_ssml,
+                        doc,
+                        speaker=req.speaker,
+                        language=req.language,
+                        instruct=req.instruct,
+                        speed=req.speed,
+                        voice=req.voice,
+                    )
+                    text = doc.plain_text()
+                else:
+                    wav_bytes = await asyncio.to_thread(
+                        tts.synthesize,
+                        text,
+                        speaker=req.speaker,
+                        language=req.language,
+                        instruct=req.instruct,
+                        speed=req.speed,
+                        voice=req.voice,
+                    )
                 t_tts = time.time() - t1
 
         t_total = time.time() - t0

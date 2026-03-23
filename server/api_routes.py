@@ -13,7 +13,7 @@ from config import (
     MAX_TEXT_LENGTH, MIN_SPEED, MAX_SPEED, PRESET_SPEAKERS,
     TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE, VALID_LANGUAGES,
 )
-from ssml_parser import is_ssml, parse_ssml
+from ssml_parser import is_ssml, inject_breaks, parse_ssml
 from audio_ops import list_sfx
 
 router = APIRouter(prefix="/api")
@@ -146,16 +146,32 @@ async def api_speak(
                 text_spoken = text
                 t_summarize = 0.0
 
+            # Auto-insert pauses at paragraph breaks
+            text_spoken = inject_breaks(text_spoken)
+
             t1 = time.time()
-            wav_bytes = await asyncio.to_thread(
-                tts.synthesize,
-                text_spoken,
-                speaker=speaker,
-                language=language,
-                instruct=instruct or None,
-                speed=speed,
-                voice=voice,
-            )
+            if is_ssml(text_spoken):
+                doc = parse_ssml(text_spoken)
+                wav_bytes = await asyncio.to_thread(
+                    tts.synthesize_ssml,
+                    doc,
+                    speaker=speaker,
+                    language=language,
+                    instruct=instruct or None,
+                    speed=speed,
+                    voice=voice,
+                )
+                text_spoken = doc.plain_text()
+            else:
+                wav_bytes = await asyncio.to_thread(
+                    tts.synthesize,
+                    text_spoken,
+                    speaker=speaker,
+                    language=language,
+                    instruct=instruct or None,
+                    speed=speed,
+                    voice=voice,
+                )
             t_tts = time.time() - t1
 
     entry_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{secrets.token_hex(4)}"

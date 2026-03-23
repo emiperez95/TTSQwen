@@ -52,6 +52,12 @@ class SSMLDocument:
         return " ".join(parts)
 
 
+def inject_breaks(text: str, break_ms: int = 700) -> str:
+    """Replace paragraph breaks (double newlines) with <break> tags."""
+    import re
+    return re.sub(r'\n\s*\n', f' <break time="{break_ms}ms"/> ', text).strip()
+
+
 def is_ssml(text: str) -> bool:
     return bool(_SSML_DETECT_RE.search(text))
 
