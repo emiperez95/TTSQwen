@@ -49,7 +49,7 @@ class Summarizer:
         with torch.no_grad():
             output_ids = model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=512,
                 do_sample=False,
             )
 
