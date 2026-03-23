@@ -1,257 +1,281 @@
 {
-  "dashboard": {
-    "title": "TTSQwen",
-    "uid": "ttsqwen",
-    "tags": ["tts", "ttsqwen"],
-    "timezone": "browser",
-    "refresh": "30s",
-    "time": { "from": "now-1h", "to": "now" },
-    "templating": {
-      "list": [
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus datasource for TTSQwen metrics",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    },
+    {
+      "name": "DS_TEMPO",
+      "label": "Tempo",
+      "description": "Tempo datasource for TTSQwen traces",
+      "type": "datasource",
+      "pluginId": "tempo",
+      "pluginName": "Tempo"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus" },
+    { "type": "datasource", "id": "tempo", "name": "Tempo" },
+    { "type": "panel", "id": "timeseries", "name": "Time series" },
+    { "type": "panel", "id": "stat", "name": "Stat" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart" },
+    { "type": "panel", "id": "traces", "name": "Traces" }
+  ],
+  "title": "TTSQwen",
+  "uid": "ttsqwen",
+  "tags": ["tts", "ttsqwen"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "voice",
+        "type": "query",
+        "datasource": { "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(tts_requests_total, voice)",
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
         {
-          "name": "voice",
-          "type": "query",
-          "datasource": { "uid": "prometheus" },
-          "query": "label_values(tts_requests_total, voice)",
-          "includeAll": true,
-          "current": { "text": "All", "value": "$__all" },
-          "refresh": 2
+          "expr": "sum(rate(tts_requests_total{voice=~\"$voice\"}[5m])) by (voice)",
+          "legendFormat": "{{ voice }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 15, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Total Requests",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(tts_requests_total)",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "title": "Requests by Voice",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(tts_requests_total) by (voice)",
+          "legendFormat": "{{ voice }}"
         }
       ]
     },
-    "panels": [
-      {
-        "title": "Request Rate",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "sum(rate(tts_requests_total{voice=~\"$voice\"}[5m])) by (voice)",
-            "legendFormat": "{{ voice }}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "reqps",
-            "custom": { "fillOpacity": 15, "lineWidth": 2 }
-          }
+    {
+      "title": "Avg Generate Time",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "rate(tts_generate_duration_seconds_sum[5m]) / rate(tts_generate_duration_seconds_count[5m])",
+          "legendFormat": "avg"
         }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "decimals": 2 }
       },
-      {
-        "title": "Total Requests",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "sum(tts_requests_total)",
-            "legendFormat": "total"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": { "unit": "short" }
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "title": "Requests by Endpoint",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(tts_requests_total) by (endpoint)",
+          "legendFormat": "{{ endpoint }}"
+        }
+      ]
+    },
+    {
+      "title": "Model Load Time",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "rate(tts_model_load_duration_seconds_sum[1h]) / rate(tts_model_load_duration_seconds_count[1h])",
+          "legendFormat": "avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "decimals": 1 }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "title": "Model Loads",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(tts_model_load_duration_seconds_count) by (model)",
+          "legendFormat": "{{ model }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "title": "Generation Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p50"
         },
-        "options": { "colorMode": "background", "graphMode": "area" }
-      },
-      {
-        "title": "Requests by Voice",
-        "type": "piechart",
-        "gridPos": { "h": 8, "w": 4, "x": 12, "y": 0 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "sum(tts_requests_total) by (voice)",
-            "legendFormat": "{{ voice }}"
-          }
-        ]
-      },
-      {
-        "title": "Avg Generate Time",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "rate(tts_generate_duration_seconds_sum[5m]) / rate(tts_generate_duration_seconds_count[5m])",
-            "legendFormat": "avg"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": { "unit": "s", "decimals": 2 }
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p95"
         },
-        "options": { "colorMode": "background", "graphMode": "area" }
-      },
-      {
-        "title": "Requests by Endpoint",
-        "type": "piechart",
-        "gridPos": { "h": 8, "w": 4, "x": 16, "y": 0 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "sum(tts_requests_total) by (endpoint)",
-            "legendFormat": "{{ endpoint }}"
-          }
-        ]
-      },
-      {
-        "title": "Model Load Time",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "rate(tts_model_load_duration_seconds_sum[1h]) / rate(tts_model_load_duration_seconds_count[1h])",
-            "legendFormat": "avg"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": { "unit": "s", "decimals": 1 }
-        },
-        "options": { "colorMode": "background", "graphMode": "none" }
-      },
-      {
-        "title": "Model Loads",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "sum(tts_model_load_duration_seconds_count) by (model)",
-            "legendFormat": "{{ model }}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": { "unit": "short" }
-        },
-        "options": { "colorMode": "background", "graphMode": "none" }
-      },
-      {
-        "title": "Generation Time",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p95"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p99"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "custom": { "fillOpacity": 10, "lineWidth": 2 }
-          }
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(tts_generate_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p99"
         }
-      },
-      {
-        "title": "Audio Output Duration",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p95"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "custom": { "fillOpacity": 10, "lineWidth": 2 }
-          }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 10, "lineWidth": 2 }
         }
-      },
-      {
-        "title": "Summarization Time",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p95"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "custom": { "fillOpacity": 10, "lineWidth": 2 }
-          }
-        }
-      },
-      {
-        "title": "Input Text Length",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
-            "legendFormat": "p95"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "custom": { "fillOpacity": 10, "lineWidth": 2 }
-          }
-        }
-      },
-      {
-        "title": "Real-Time Factor (audio duration / generate time)",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-        "datasource": { "uid": "prometheus" },
-        "targets": [
-          {
-            "expr": "(rate(tts_audio_duration_seconds_sum{voice=~\"$voice\"}[5m])) / (rate(tts_generate_duration_seconds_sum{voice=~\"$voice\"}[5m]))",
-            "legendFormat": "{{ voice }}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "x",
-            "custom": { "fillOpacity": 10, "lineWidth": 2 }
-          }
-        }
-      },
-      {
-        "title": "Traces",
-        "type": "traces",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-        "datasource": { "uid": "tempo" },
-        "targets": [
-          {
-            "queryType": "traceqlSearch",
-            "filters": [
-              { "id": "service-name", "tag": "service.name", "operator": "=", "value": ["ttsqwen"], "scope": "resource" }
-            ]
-          }
-        ]
       }
-    ],
-    "schemaVersion": 39
-  },
-  "overwrite": true
+    },
+    {
+      "title": "Audio Output Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tts_audio_duration_seconds_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Summarization Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tts_summarize_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Input Text Length",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tts_input_chars_bucket{voice=~\"$voice\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Real-Time Factor (audio duration / generate time)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "(rate(tts_audio_duration_seconds_sum{voice=~\"$voice\"}[5m])) / (rate(tts_generate_duration_seconds_sum{voice=~\"$voice\"}[5m]))",
+          "legendFormat": "{{ voice }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "custom": { "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Traces",
+      "type": "traces",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "uid": "${DS_TEMPO}" },
+      "targets": [
+        {
+          "queryType": "traceqlSearch",
+          "filters": [
+            { "id": "service-name", "tag": "service.name", "operator": "=", "value": ["ttsqwen"], "scope": "resource" }
+          ]
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39
 }
