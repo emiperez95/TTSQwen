@@ -49,10 +49,15 @@ def init_telemetry():
     )
     set_logger_provider(_logger_provider)
 
-    # Bridge Python logging → OTel
+    # Bridge Python logging → OTel (keeps existing handlers like stderr)
     otel_handler = LoggingHandler(level=logging.INFO, logger_provider=_logger_provider)
-    logging.getLogger().addHandler(otel_handler)
-    logging.getLogger().setLevel(logging.INFO)
+    root = logging.getLogger()
+    root.addHandler(otel_handler)
+    if root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+    # Ensure our logs also go to stderr (journalctl)
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        root.addHandler(logging.StreamHandler())
 
 
 def shutdown_telemetry():
