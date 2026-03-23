@@ -48,7 +48,10 @@ async def lifespan(app: FastAPI):
 
     idle_task = asyncio.create_task(manager.idle_checker(app.state.inference_lock))
 
-    log.info("Server ready (models load on first use, idle timeout: %ds)", MODEL_IDLE_TIMEOUT)
+    # Preload pinned models so first request isn't slow
+    await asyncio.to_thread(manager.preload_pinned)
+
+    log.info("Server ready (idle timeout: %ds)", MODEL_IDLE_TIMEOUT)
     yield
 
     # Shutdown

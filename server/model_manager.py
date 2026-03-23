@@ -121,6 +121,12 @@ class ModelManager:
                         if slot.loaded and (time.time() - slot.last_used) >= self._idle_timeout:
                             await asyncio.to_thread(self.unload, slot.name)
 
+    def preload_pinned(self):
+        """Load all pinned models at startup."""
+        for name, slot in self._slots.items():
+            if slot.pinned and not slot.loaded:
+                self.get(name)
+
     def shutdown(self):
         self._shutdown = True
         for name in list(self._slots):
