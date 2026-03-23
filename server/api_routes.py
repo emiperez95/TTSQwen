@@ -163,7 +163,7 @@ async def api_speak(
 
     metadata = {
         "text_input": text_input[:500],
-        "text_spoken": text_spoken[:500],
+        "text_spoken": text_spoken[:2000],
         "preset": preset,
         "speaker": None if voice else (speaker or TTS_VOICE),
         "voice": voice,
