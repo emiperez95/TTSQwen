@@ -3,6 +3,7 @@
 
 import argparse
 import io
+import shutil
 import sys
 import tempfile
 import subprocess
@@ -19,7 +20,7 @@ def play_wav(wav_bytes: bytes):
 
 
 def send_text(server: str, text: str, summarize: bool) -> None:
-    """Send text to server and play the response."""
+    """Send text to server and play the response (buffered)."""
     endpoint = f"{server}/speak"
     payload = {"text": text, "summarize": summarize}
 
@@ -33,7 +34,6 @@ def send_text(server: str, text: str, summarize: bool) -> None:
         print(f"Error: {e}")
         return
 
-    # Print timing info from headers
     t_sum = resp.headers.get("X-Summarize-Time", "0")
     t_tts = resp.headers.get("X-TTS-Time", "0")
     spoken = resp.headers.get("X-Spoken-Text", "")
@@ -42,6 +42,51 @@ def send_text(server: str, text: str, summarize: bool) -> None:
     print(f"  Summarize: {t_sum}s | TTS: {t_tts}s | Size: {len(resp.content)} bytes")
 
     play_wav(resp.content)
+
+
+def send_text_stream(server: str, text: str, summarize: bool) -> None:
+    """Send text to server and play streamed MP3 response."""
+    endpoint = f"{server}/speak/stream"
+    payload = {"text": text, "summarize": summarize}
+
+    try:
+        resp = requests.post(endpoint, json=payload, stream=True, timeout=120)
+        resp.raise_for_status()
+    except requests.ConnectionError:
+        print(f"Error: cannot connect to {server}")
+        return
+    except requests.HTTPError as e:
+        print(f"Error: {e}")
+        return
+
+    t_sum = resp.headers.get("X-Summarize-Time", "0")
+    spoken = resp.headers.get("X-Spoken-Text", "")
+    if spoken:
+        print(f"  Spoken: {spoken}")
+    print(f"  Summarize: {t_sum}s | Streaming...")
+
+    if shutil.which("ffplay"):
+        # Stream directly to ffplay for real-time playback
+        proc = subprocess.Popen(
+            ["ffplay", "-nodisp", "-autoexit", "-i", "pipe:0"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            for chunk in resp.iter_content(chunk_size=4096):
+                proc.stdin.write(chunk)
+            proc.stdin.close()
+            proc.wait()
+        except BrokenPipeError:
+            pass
+    else:
+        # Fallback: buffer to temp file and play with afplay
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as f:
+            for chunk in resp.iter_content(chunk_size=4096):
+                f.write(chunk)
+            f.flush()
+            subprocess.run(["afplay", f.name], check=True)
 
 
 def main():
@@ -56,11 +101,19 @@ def main():
         action="store_true",
         help="Send text directly to TTS without summarization",
     )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Stream audio (plays as it generates, requires ffplay for real-time)",
+    )
     args = parser.parse_args()
 
     summarize = not args.no_summarize
     mode = "summarize + TTS" if summarize else "TTS only"
-    print(f"TTSQwen client — {args.server} — mode: {mode}")
+    stream_label = " [streaming]" if args.stream else ""
+    print(f"TTSQwen client — {args.server} — mode: {mode}{stream_label}")
+    if args.stream and not shutil.which("ffplay"):
+        print("  Warning: ffplay not found, streaming will buffer to file before playing")
     print("Type text and press Enter. Ctrl+C to quit.\n")
 
     try:
@@ -73,7 +126,10 @@ def main():
             if not text:
                 continue
 
-            send_text(args.server, text, summarize)
+            if args.stream:
+                send_text_stream(args.server, text, summarize)
+            else:
+                send_text(args.server, text, summarize)
             print()
     except KeyboardInterrupt:
         print("\nBye.")

@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 import time
+from collections.abc import Generator
 from pathlib import Path
 
 import numpy as np
@@ -276,6 +277,73 @@ class TTSEngine:
             result = self._apply_speed(result, effective_speed)
 
         return result
+
+    def synthesize_ssml_streaming(
+        self,
+        doc: SSMLDocument,
+        speaker: str | None = None,
+        language: str | None = None,
+        instruct: str | None = None,
+        speed: float | None = None,
+        voice: str | None = None,
+        cancel: "threading.Event | None" = None,
+    ) -> Generator[bytes, None, None]:
+        """Yield WAV bytes per segment for streaming. Caller converts to MP3."""
+        import threading
+        effective_speed = speed if speed is not None else TTS_SPEED
+
+        last_wav_path = None
+        last_text = None
+
+        try:
+            for seg in doc.segments:
+                if cancel and cancel.is_set():
+                    break
+
+                if isinstance(seg, SpeechSegment):
+                    if voice and last_wav_path:
+                        wav_raw = self._synthesize_raw(
+                            seg.text, speaker=speaker, language=language,
+                            instruct=instruct, speed=1.0, voice=voice,
+                            ref_audio_override=last_wav_path,
+                            ref_text_override=last_text,
+                        )
+                    else:
+                        wav_raw = self._synthesize_raw(
+                            seg.text, speaker=speaker, language=language,
+                            instruct=instruct, speed=1.0, voice=voice,
+                        )
+
+                    # Update chaining ref with pre-speed WAV
+                    if voice:
+                        fd, tmp = tempfile.mkstemp(suffix=".wav")
+                        with os.fdopen(fd, "wb") as f:
+                            f.write(wav_raw)
+                        if last_wav_path:
+                            try:
+                                os.remove(last_wav_path)
+                            except OSError:
+                                pass
+                        last_wav_path = tmp
+                        last_text = seg.text
+
+                    # Yield speed-adjusted chunk
+                    if effective_speed != 1.0:
+                        yield self._apply_speed(wav_raw, effective_speed)
+                    else:
+                        yield wav_raw
+
+                elif isinstance(seg, BreakSegment):
+                    yield generate_silence(seg.duration_ms)
+
+                elif isinstance(seg, AudioSegment):
+                    yield load_sfx(seg.name)
+        finally:
+            if last_wav_path:
+                try:
+                    os.remove(last_wav_path)
+                except OSError:
+                    pass
 
     @staticmethod
     def _apply_speed(wav_bytes: bytes, speed: float) -> bytes:

@@ -126,3 +126,15 @@ model_loaded_gauge = meter.create_up_down_counter(
     description="Whether a model is currently loaded (1=loaded, 0=not)",
     unit="1",
 )
+
+# Streaming
+stream_request_counter = meter.create_counter(
+    "tts.stream.requests",
+    description="Total streaming TTS requests",
+    unit="1",
+)
+stream_ttfb = meter.create_histogram(
+    "tts.stream.ttfb",
+    description="Time to first audio byte in streaming mode",
+    unit="s",
+)

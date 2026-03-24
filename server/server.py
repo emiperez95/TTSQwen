@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import queue
+import threading
 import time
 import urllib.parse
 from contextlib import asynccontextmanager
@@ -8,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
@@ -22,10 +24,12 @@ from tts_engine import TTSEngine
 from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
-from ssml_parser import is_ssml, inject_breaks, parse_ssml
+from ssml_parser import is_ssml, inject_breaks, parse_ssml, SSMLDocument, SpeechSegment
+from audio_ops import wav_to_mp3
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
     summarize_duration, error_counter, input_chars, request_duration,
+    stream_request_counter, stream_ttfb,
 )
 
 log = logging.getLogger(__name__)
@@ -226,6 +230,12 @@ POST /speak
       The old man coughs. <audio src="cough"/> <break time="800ms"/>
       Then he whispers. <bg src="tavern" vol="0.12"/>
 
+POST /speak/stream
+  Same as /speak, but streams audio as MP3 chunks.
+  Audio plays as it generates — lower time-to-first-byte.
+  Falls back to buffered MP3 when background audio (<bg>) is used.
+  Response: audio/mpeg (chunked transfer encoding)
+
 GET /api/sfx
   List available sound effect names for <audio> and <bg> tags.
 
@@ -273,24 +283,7 @@ Tips:
 
 @app.post("/speak")
 async def speak(req: SpeakRequest, request: Request):
-    # Resolve preset: preset fields are defaults, explicit fields override
-    if req.preset:
-        from api_routes import _load_presets
-        presets = _load_presets()
-        p = next((p for p in presets if p["name"] == req.preset), None)
-        if p:
-            if req.speaker is None and req.voice is None:
-                req.voice = p.get("voice")
-                req.speaker = p.get("speaker")
-            if req.language is None:
-                req.language = p.get("language")
-            if req.instruct is None:
-                req.instruct = p.get("instruct", "")
-            if req.speed is None:
-                req.speed = p.get("speed")
-            if req.summarize_prompt is None:
-                req.summarize_prompt = p.get("summarize_prompt")
-            req.summarize = p.get("summarize", req.summarize)
+    _resolve_preset(req)
 
     summarizer = request.app.state.summarizer
     tts = request.app.state.tts
@@ -385,6 +378,154 @@ async def speak(req: SpeakRequest, request: Request):
                 "X-Spoken-Text": urllib.parse.quote(text[:200]),
             },
         )
+
+
+def _resolve_preset(req: SpeakRequest):
+    """Apply preset defaults to request (mutates req in place)."""
+    if not req.preset:
+        return
+    from api_routes import _load_presets
+    presets = _load_presets()
+    p = next((p for p in presets if p["name"] == req.preset), None)
+    if not p:
+        return
+    if req.speaker is None and req.voice is None:
+        req.voice = p.get("voice")
+        req.speaker = p.get("speaker")
+    if req.language is None:
+        req.language = p.get("language")
+    if req.instruct is None:
+        req.instruct = p.get("instruct", "")
+    if req.speed is None:
+        req.speed = p.get("speed")
+    if req.summarize_prompt is None:
+        req.summarize_prompt = p.get("summarize_prompt")
+    req.summarize = p.get("summarize", req.summarize)
+
+
+async def _preprocess_text(req: SpeakRequest, summarizer, lock) -> tuple[str, SSMLDocument, float]:
+    """Summarize if needed, inject breaks, parse SSML. Returns (plain_text, doc, summarize_time)."""
+    ssml_mode = is_ssml(req.text)
+    if ssml_mode:
+        req.summarize = False
+
+    if ssml_mode:
+        doc = parse_ssml(req.text)
+        return doc.plain_text(), doc, 0.0
+
+    t0 = time.time()
+    if req.summarize and summarizer:
+        async with lock:
+            text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
+        t_summarize = time.time() - t0
+        summarize_duration.record(t_summarize)
+        log.info("Summarized in %.2fs: %s...", t_summarize, text[:100])
+    else:
+        text = req.text
+        t_summarize = 0.0
+
+    text = inject_breaks(text)
+    if is_ssml(text):
+        doc = parse_ssml(text)
+        return doc.plain_text(), doc, t_summarize
+    else:
+        doc = SSMLDocument(segments=[SpeechSegment(text=text)], background=None)
+        return text, doc, t_summarize
+
+
+@app.post("/speak/stream")
+async def speak_stream(req: SpeakRequest, request: Request):
+    _resolve_preset(req)
+
+    summarizer = request.app.state.summarizer
+    tts = request.app.state.tts
+    lock = request.app.state.inference_lock
+
+    voice_label = req.voice or req.speaker or "aiden"
+
+    # Pre-processing (summarization) completes before streaming starts
+    text, doc, t_summarize = await _preprocess_text(req, summarizer, lock)
+
+    stream_request_counter.add(1, {"voice": voice_label})
+    input_chars.record(len(req.text), {"voice": voice_label})
+
+    # Background audio requires full foreground — fall back to buffered MP3
+    if doc.background:
+        async with lock:
+            t1 = time.time()
+            wav_bytes = await asyncio.to_thread(
+                tts.synthesize_ssml, doc,
+                speaker=req.speaker, language=req.language,
+                instruct=req.instruct, speed=req.speed, voice=req.voice,
+            )
+            t_tts = time.time() - t1
+        mp3_bytes = await asyncio.to_thread(wav_to_mp3, wav_bytes)
+        log.info("Stream fallback (bg audio) %.2fs, %d bytes", t_tts, len(mp3_bytes))
+        return Response(
+            content=mp3_bytes,
+            media_type="audio/mpeg",
+            headers={
+                "X-Summarize-Time": f"{t_summarize:.3f}",
+                "X-TTS-Time": f"{t_tts:.3f}",
+                "X-Spoken-Text": urllib.parse.quote(text[:200]),
+            },
+        )
+
+    # Streaming path
+    SENTINEL = object()
+    cancel = threading.Event()
+    q: queue.Queue = queue.Queue(maxsize=2)
+    t_start = time.time()
+
+    def _worker():
+        try:
+            for wav_chunk in tts.synthesize_ssml_streaming(
+                doc, speaker=req.speaker, language=req.language,
+                instruct=req.instruct, speed=req.speed, voice=req.voice,
+                cancel=cancel,
+            ):
+                mp3_chunk = wav_to_mp3(wav_chunk)
+                q.put(mp3_chunk)
+        except Exception as e:
+            q.put(e)
+        finally:
+            q.put(SENTINEL)
+
+    async def _generate():
+        thread = threading.Thread(target=_worker, daemon=True)
+        first = True
+        async with lock:
+            thread.start()
+            try:
+                while True:
+                    item = await asyncio.to_thread(q.get)
+                    if item is SENTINEL:
+                        break
+                    if isinstance(item, Exception):
+                        log.error("Stream error: %s", item)
+                        error_counter.add(1, {"voice": voice_label, "endpoint": "/speak/stream"})
+                        break
+                    if first:
+                        stream_ttfb.record(time.time() - t_start, {"voice": voice_label})
+                        first = False
+                    yield item
+            finally:
+                cancel.set()
+                thread.join(timeout=10)
+
+        t_total = time.time() - t_start
+        request_counter.add(1, {"voice": voice_label, "endpoint": "/speak/stream"})
+        request_duration.record(t_total, {"voice": voice_label, "endpoint": "/speak/stream"})
+        log.info("Stream complete %.2fs, voice=%s", t_total, voice_label)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="audio/mpeg",
+        headers={
+            "X-Summarize-Time": f"{t_summarize:.3f}",
+            "X-Spoken-Text": urllib.parse.quote(text[:200]),
+        },
+    )
 
 
 @app.get("/")

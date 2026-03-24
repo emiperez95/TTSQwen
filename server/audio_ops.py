@@ -125,6 +125,32 @@ def concatenate_wavs(wav_list: list[bytes]) -> bytes:
             pass
 
 
+def wav_to_mp3(wav_bytes: bytes, bitrate: str = "192k") -> bytes:
+    """Convert WAV bytes to MP3 bytes using ffmpeg."""
+    in_fd, inpath = tempfile.mkstemp(suffix=".wav")
+    out_fd, outpath = tempfile.mkstemp(suffix=".mp3")
+    try:
+        os.close(out_fd)
+        with os.fdopen(in_fd, "wb") as f:
+            f.write(wav_bytes)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", inpath,
+                "-codec:a", "libmp3lame", "-b:a", bitrate,
+                outpath,
+            ],
+            capture_output=True, check=True,
+        )
+        with open(outpath, "rb") as f:
+            return f.read()
+    finally:
+        for p in (inpath, outpath):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 def mix_background(fg_bytes: bytes, bg_bytes: bytes, volume: float = 0.15) -> bytes:
     """Mix looped background audio underneath foreground using ffmpeg."""
     fg_fd, fg_path = tempfile.mkstemp(suffix=".wav")
