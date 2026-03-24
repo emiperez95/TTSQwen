@@ -98,6 +98,21 @@ class TTSEngine:
         voice: str | None = None,
     ) -> bytes:
         """Synthesize text to WAV bytes with optional per-request overrides."""
+        return self._synthesize_raw(text, speaker=speaker, language=language,
+                                    instruct=instruct, speed=speed, voice=voice)
+
+    def _synthesize_raw(
+        self,
+        text: str,
+        speaker: str | None = None,
+        language: str | None = None,
+        instruct: str | None = None,
+        speed: float | None = None,
+        voice: str | None = None,
+        ref_audio_override: str | None = None,
+        ref_text_override: str | None = None,
+    ) -> bytes:
+        """Internal synthesize with optional reference audio override for chaining."""
         language = language or TTS_LANGUAGE
         instruct = instruct if instruct is not None else TTS_INSTRUCT
         speed = speed if speed is not None else TTS_SPEED
@@ -114,7 +129,9 @@ class TTSEngine:
             if speaker:
                 wavs, sr = self._generate_custom(text, language, speaker, instruct)
             else:
-                wavs, sr = self._generate_cloned(text, language, voice, instruct)
+                wavs, sr = self._generate_cloned(text, language, voice, instruct,
+                                                  ref_audio_override=ref_audio_override,
+                                                  ref_text_override=ref_text_override)
         t_generate = time.time() - t0
 
         t1 = time.time()
@@ -157,22 +174,24 @@ class TTSEngine:
             kwargs["instruct"] = instruct
         return model.generate_custom_voice(**kwargs)
 
-    def _generate_cloned(self, text, language, voice, instruct):
+    def _generate_cloned(self, text, language, voice, instruct, ref_audio_override=None, ref_text_override=None):
         model = self._manager.get("base")
-        ref_audio = VOICES_DIR / f"{voice}.wav"
-        ref_text_path = VOICES_DIR / f"{voice}.txt"
-        if not ref_audio.exists():
-            raise FileNotFoundError(f"Voice file not found: {ref_audio}")
-        ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
+        if ref_audio_override:
+            ref_audio_path = ref_audio_override
+            ref_text = ref_text_override or ""
+        else:
+            ref_audio_path = str(VOICES_DIR / f"{voice}.wav")
+            if not Path(ref_audio_path).exists():
+                raise FileNotFoundError(f"Voice file not found: {ref_audio_path}")
+            ref_text_path = VOICES_DIR / f"{voice}.txt"
+            ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
         kwargs = dict(
             text=text,
             language=language,
-            ref_audio=str(ref_audio),
+            ref_audio=ref_audio_path,
             ref_text=ref_text,
             xvec_only=False,
-            temperature=0.1,
         )
-        # Note: generate_voice_clone does not support instruct
         return model.generate_voice_clone(**kwargs)
 
     def synthesize_ssml(
@@ -187,17 +206,28 @@ class TTSEngine:
         """Synthesize an SSML document: speech segments via TTS, breaks as silence, audio as SFX."""
         effective_speed = speed if speed is not None else TTS_SPEED
 
-        # Fixed seed so all segments share consistent voice characteristics
-        torch.manual_seed(42)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(42)
+        # For chained voice cloning: track the last generated audio
+        # so subsequent sentences use it as reference for pitch consistency
+        last_wav_path = None
+        last_text = None
 
         wav_parts: list[bytes] = []
         for seg in doc.segments:
             if isinstance(seg, SpeechSegment):
-                # Synthesize at speed=1.0; we apply speed to the final result
-                wav_parts.append(
-                    self.synthesize(
+                if voice and last_wav_path:
+                    # Chain: use previous output as reference
+                    wav_bytes_seg = self._synthesize_raw(
+                        seg.text,
+                        speaker=speaker,
+                        language=language,
+                        instruct=instruct,
+                        speed=1.0,
+                        voice=voice,
+                        ref_audio_override=last_wav_path,
+                        ref_text_override=last_text,
+                    )
+                else:
+                    wav_bytes_seg = self._synthesize_raw(
                         seg.text,
                         speaker=speaker,
                         language=language,
@@ -205,11 +235,31 @@ class TTSEngine:
                         speed=1.0,
                         voice=voice,
                     )
-                )
+                wav_parts.append(wav_bytes_seg)
+
+                # Save this output as reference for next segment
+                if voice:
+                    fd, tmp = tempfile.mkstemp(suffix=".wav")
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(wav_bytes_seg)
+                    if last_wav_path:
+                        try:
+                            os.remove(last_wav_path)
+                        except OSError:
+                            pass
+                    last_wav_path = tmp
+                    last_text = seg.text
             elif isinstance(seg, BreakSegment):
                 wav_parts.append(generate_silence(seg.duration_ms))
             elif isinstance(seg, AudioSegment):
                 wav_parts.append(load_sfx(seg.name))
+
+        # Clean up chaining temp file
+        if last_wav_path:
+            try:
+                os.remove(last_wav_path)
+            except OSError:
+                pass
 
         if not wav_parts:
             wav_parts.append(generate_silence(100))
