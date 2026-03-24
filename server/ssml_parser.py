@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 MAX_BREAK_MS = 10_000
-MAX_SEGMENTS = 20
+MAX_SEGMENTS = 50
 
 _TAG_RE = re.compile(
     r'<(audio|break|bg)\s+([^>]*?)\s*/>', re.IGNORECASE
@@ -52,10 +52,19 @@ class SSMLDocument:
         return " ".join(parts)
 
 
-def inject_breaks(text: str, break_ms: int = 700) -> str:
-    """Replace paragraph breaks (double newlines) with <break> tags."""
-    import re
-    return re.sub(r'\n\s*\n', f' <break time="{break_ms}ms"/> ', text).strip()
+_SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+')
+
+def inject_breaks(text: str, sentence_ms: int = 300, paragraph_ms: int = 700) -> str:
+    """Insert <break> tags at paragraph and sentence boundaries.
+
+    - Paragraph breaks (double newlines): longer pause
+    - Sentence endings (. ! ?): shorter breath pause
+    """
+    # First, replace paragraph breaks with a longer pause
+    result = re.sub(r'\n\s*\n', f' <break time="{paragraph_ms}ms"/> ', text)
+    # Then, insert short pauses between sentences
+    result = _SENTENCE_END_RE.sub(f' <break time="{sentence_ms}ms"/> ', result)
+    return result.strip()
 
 
 def is_ssml(text: str) -> bool:
