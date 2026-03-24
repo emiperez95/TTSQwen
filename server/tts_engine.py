@@ -170,6 +170,7 @@ class TTSEngine:
             ref_audio=str(ref_audio),
             ref_text=ref_text,
             xvec_only=False,
+            do_sample=False,
         )
         # Note: generate_voice_clone does not support instruct
         return model.generate_voice_clone(**kwargs)
