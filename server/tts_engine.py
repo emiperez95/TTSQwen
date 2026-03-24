@@ -170,7 +170,7 @@ class TTSEngine:
             ref_audio=str(ref_audio),
             ref_text=ref_text,
             xvec_only=False,
-            do_sample=False,
+            temperature=0.5,
         )
         # Note: generate_voice_clone does not support instruct
         return model.generate_voice_clone(**kwargs)
@@ -186,6 +186,11 @@ class TTSEngine:
     ) -> bytes:
         """Synthesize an SSML document: speech segments via TTS, breaks as silence, audio as SFX."""
         effective_speed = speed if speed is not None else TTS_SPEED
+
+        # Fixed seed so all segments share consistent voice characteristics
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(42)
 
         wav_parts: list[bytes] = []
         for seg in doc.segments:
