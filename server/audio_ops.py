@@ -143,7 +143,10 @@ def wav_to_aac_ts(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float
                 "ffmpeg", "-y", "-i", inpath,
                 "-ar", "44100",
                 "-codec:a", "aac", "-b:a", bitrate,
-                "-f", "mpegts", outpath,
+                "-f", "mpegts",
+                "-output_ts_offset", "0",
+                "-muxdelay", "0",
+                outpath,
             ],
             capture_output=True, check=True,
         )
