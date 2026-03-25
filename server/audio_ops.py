@@ -149,7 +149,12 @@ def wav_to_aac_fmp4(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, flo
             capture_output=True, check=True,
         )
         with open(outpath, "rb") as f:
-            return f.read(), duration
+            data = f.read()
+        # Strip ftyp+moov — keep only moof+mdat for HLS media segments
+        moof_pos = data.find(b"moof")
+        if moof_pos > 4:
+            data = data[moof_pos - 4:]  # include the 4-byte box size before "moof"
+        return data, duration
     finally:
         for p in (inpath, outpath):
             try:
