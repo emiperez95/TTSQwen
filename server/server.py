@@ -25,11 +25,12 @@ from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
 from ssml_parser import is_ssml, inject_breaks, parse_ssml, SSMLDocument, SpeechSegment
-from audio_ops import wav_to_mp3
+from audio_ops import wav_to_mp3, wav_to_aac_ts
+from hls_manager import HLSManager
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
     summarize_duration, error_counter, input_chars, request_duration,
-    stream_request_counter, stream_ttfb,
+    stream_request_counter, stream_ttfb, hls_request_counter, hls_ttfb,
 )
 
 log = logging.getLogger(__name__)
@@ -49,8 +50,10 @@ async def lifespan(app: FastAPI):
     app.state.voice_mgr = VoiceManager()
     app.state.history_mgr = HistoryManager()
     app.state.inference_lock = asyncio.Semaphore(1)
+    app.state.hls_manager = HLSManager(ttl=300)
 
     idle_task = asyncio.create_task(manager.idle_checker(app.state.inference_lock))
+    hls_cleanup_task = asyncio.create_task(_hls_cleanup_loop(app.state.hls_manager))
 
     # Preload pinned models so first request isn't slow
     await asyncio.to_thread(manager.preload_pinned)
@@ -60,6 +63,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     idle_task.cancel()
+    hls_cleanup_task.cancel()
     manager.shutdown()
     shutdown_telemetry()
     log.info("All models unloaded.")
@@ -235,6 +239,18 @@ POST /speak/stream
   Audio plays as it generates — lower time-to-first-byte.
   Falls back to buffered MP3 when background audio (<bg>) is used.
   Response: audio/mpeg (chunked transfer encoding)
+
+POST /speak/hls
+  Same as /speak, but returns HLS playlist for browser streaming.
+  Response: JSON {{"session_id": "...", "playlist_url": "/hls/.../playlist.m3u8"}}
+  Playlist grows as segments are generated. iOS Safari plays natively.
+  Sessions expire after 5 minutes.
+
+GET /hls/{{session_id}}/playlist.m3u8
+  HLS playlist (EVENT type). Poll to discover new segments.
+
+GET /hls/{{session_id}}/{{index}}.ts
+  Individual AAC-TS audio segment.
 
 GET /api/sfx
   List available sound effect names for <audio> and <bg> tags.
@@ -544,6 +560,133 @@ async def speak_stream(req: SpeakRequest, request: Request):
             "X-Summarize-Time": f"{t_summarize:.3f}",
             "X-Spoken-Text": urllib.parse.quote(text[:200]),
         },
+    )
+
+
+async def _hls_cleanup_loop(hls_mgr: HLSManager):
+    """Periodically remove expired HLS sessions."""
+    while True:
+        await asyncio.sleep(60)
+        n = hls_mgr.cleanup()
+        if n:
+            log.info("HLS cleanup: removed %d expired sessions", n)
+
+
+async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
+    """Background task: generate audio segments and store in HLS session."""
+    cancel = threading.Event()
+    q: queue.Queue = queue.Queue(maxsize=2)
+    SENTINEL = object()
+    t_start = time.time()
+
+    def _synth():
+        try:
+            for wav_chunk in tts.synthesize_ssml_streaming(
+                doc, speaker=req.speaker, language=req.language,
+                instruct=req.instruct, speed=req.speed, voice=req.voice,
+                cancel=cancel,
+            ):
+                ts_bytes, duration = wav_to_aac_ts(wav_chunk)
+                q.put((ts_bytes, duration))
+        except Exception as e:
+            q.put(e)
+        finally:
+            q.put(SENTINEL)
+
+    async with lock:
+        thread = threading.Thread(target=_synth, daemon=True)
+        thread.start()
+        first = True
+        try:
+            while True:
+                item = await asyncio.to_thread(q.get)
+                if item is SENTINEL:
+                    break
+                if isinstance(item, Exception):
+                    log.error("[HLS] session %s error: %s", session_id, item)
+                    hls_mgr.finish(session_id, error=str(item))
+                    return
+                ts_bytes, duration = item
+                hls_mgr.add_segment(session_id, ts_bytes, duration)
+                if first:
+                    hls_ttfb.record(time.time() - t_start, {"voice": req.voice or req.speaker or "aiden"})
+                    first = False
+                log.info("[HLS] session %s: segment (%.1fs, %dKB, elapsed=%.2fs)",
+                         session_id, duration, len(ts_bytes) // 1024, time.time() - t_start)
+        finally:
+            cancel.set()
+            thread.join(timeout=10)
+
+    hls_mgr.finish(session_id)
+    log.info("[HLS] session %s complete (%.2fs)", session_id, time.time() - t_start)
+
+
+@app.post("/speak/hls")
+async def speak_hls(req: SpeakRequest, request: Request):
+    _resolve_preset(req)
+
+    summarizer = request.app.state.summarizer
+    tts = request.app.state.tts
+    lock = request.app.state.inference_lock
+    hls_mgr = request.app.state.hls_manager
+
+    voice_label = req.voice or req.speaker or "aiden"
+
+    # Pre-processing (summarization) completes before returning
+    text, doc, t_summarize = await _preprocess_text(req, summarizer, lock)
+
+    hls_request_counter.add(1, {"voice": voice_label})
+    input_chars.record(len(req.text), {"voice": voice_label})
+
+    session_id = hls_mgr.create_session()
+
+    # Background audio fallback: generate full audio as single segment
+    if doc.background:
+        async def _bg_fallback():
+            async with lock:
+                wav_bytes = await asyncio.to_thread(
+                    tts.synthesize_ssml, doc,
+                    speaker=req.speaker, language=req.language,
+                    instruct=req.instruct, speed=req.speed, voice=req.voice,
+                )
+            ts_bytes, duration = await asyncio.to_thread(wav_to_aac_ts, wav_bytes)
+            hls_mgr.add_segment(session_id, ts_bytes, duration)
+            hls_mgr.finish(session_id)
+        asyncio.create_task(_bg_fallback())
+    else:
+        asyncio.create_task(_hls_worker(session_id, doc, req, tts, lock, hls_mgr))
+
+    return {
+        "session_id": session_id,
+        "playlist_url": f"/hls/{session_id}/playlist.m3u8",
+        "summarize_time": round(t_summarize, 3),
+        "spoken_text": text[:200],
+    }
+
+
+@app.get("/hls/{session_id}/playlist.m3u8")
+async def hls_playlist(session_id: str, request: Request):
+    hls_mgr = request.app.state.hls_manager
+    playlist = hls_mgr.get_playlist(session_id)
+    if playlist is None:
+        raise HTTPException(404, "Session not found")
+    return Response(
+        content=playlist,
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/hls/{session_id}/{index}.ts")
+async def hls_segment(session_id: str, index: int, request: Request):
+    hls_mgr = request.app.state.hls_manager
+    data = hls_mgr.get_segment(session_id, index)
+    if data is None:
+        raise HTTPException(404, "Segment not found")
+    return Response(
+        content=data,
+        media_type="video/MP2T",
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 

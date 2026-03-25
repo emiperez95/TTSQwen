@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TTSQwen</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="/static/app.js"></script>
 </head>
@@ -106,31 +107,46 @@
                     </div>
                 </div>
 
-                <div style="margin-top: 16px">
+                <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px">
                     <button class="btn btn-primary" @click="generate()" :disabled="loading || !text.trim()">
                         <template x-if="loading"><span class="spinner"></span></template>
                         <span x-text="loading ? 'Generating...' : 'Generate Speech'"></span>
                     </button>
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-muted); cursor: pointer">
+                        <input type="checkbox" :checked="streamMode === 'hls'" @change="streamMode = $event.target.checked ? 'hls' : 'buffered'" style="cursor: pointer">
+                        Stream (HLS)
+                    </label>
                 </div>
             </div>
 
             <!-- Result -->
             <template x-if="result">
                 <div class="result-card">
-                    <audio :src="result.audio_url" controls autoplay></audio>
+                    <audio x-ref="audioPlayer" :src="result.hls ? undefined : result.audio_url" controls :autoplay="!result.hls"></audio>
                     <div class="result-meta">
+                        <template x-if="result.hls">
+                            <span style="background: var(--accent); color: #fff">HLS</span>
+                        </template>
                         <template x-if="result.preset">
                             <span x-text="result.preset" style="background: var(--accent); color: #fff"></span>
                         </template>
-                        <span x-text="result.voice || result.speaker"></span>
-                        <span x-text="result.language"></span>
-                        <span x-text="result.duration + 's'"></span>
-                        <span x-text="'TTS: ' + result.tts_time + 's'"></span>
-                        <template x-if="result.summarized">
+                        <template x-if="result.voice || result.speaker">
+                            <span x-text="result.voice || result.speaker"></span>
+                        </template>
+                        <template x-if="result.language">
+                            <span x-text="result.language"></span>
+                        </template>
+                        <template x-if="result.duration">
+                            <span x-text="result.duration + 's'"></span>
+                        </template>
+                        <template x-if="result.tts_time">
+                            <span x-text="'TTS: ' + result.tts_time + 's'"></span>
+                        </template>
+                        <template x-if="result.summarize_time">
                             <span x-text="'Summarize: ' + result.summarize_time + 's'"></span>
                         </template>
                     </div>
-                    <template x-if="result.summarized && result.text_spoken !== result.text_input">
+                    <template x-if="result.text_spoken">
                         <div class="spoken-text" x-text="result.text_spoken"></div>
                     </template>
                 </div>

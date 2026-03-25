@@ -125,6 +125,37 @@ def concatenate_wavs(wav_list: list[bytes]) -> bytes:
             pass
 
 
+def wav_to_aac_ts(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float]:
+    """Convert WAV bytes to AAC in MPEG-TS container. Returns (ts_bytes, duration_seconds)."""
+    import wave
+    # Get duration from WAV header
+    with wave.open(io.BytesIO(wav_bytes), "rb") as w:
+        duration = w.getnframes() / w.getframerate()
+
+    in_fd, inpath = tempfile.mkstemp(suffix=".wav")
+    out_fd, outpath = tempfile.mkstemp(suffix=".ts")
+    try:
+        os.close(out_fd)
+        with os.fdopen(in_fd, "wb") as f:
+            f.write(wav_bytes)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", inpath,
+                "-codec:a", "aac", "-b:a", bitrate,
+                "-f", "mpegts", outpath,
+            ],
+            capture_output=True, check=True,
+        )
+        with open(outpath, "rb") as f:
+            return f.read(), duration
+    finally:
+        for p in (inpath, outpath):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 def wav_to_mp3(wav_bytes: bytes, bitrate: str = "192k") -> bytes:
     """Convert WAV bytes to MP3 bytes using ffmpeg."""
     in_fd, inpath = tempfile.mkstemp(suffix=".wav")

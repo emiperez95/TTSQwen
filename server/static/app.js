@@ -46,6 +46,8 @@ document.addEventListener('alpine:init', () => {
         clonedVoices: [],
         loading: false,
         result: null,
+        streamMode: 'buffered', // 'buffered' or 'hls'
+        hlsInstance: null,
 
         async init() {
             const [configR, voicesR, presetsR] = await Promise.all([
@@ -94,11 +96,28 @@ document.addEventListener('alpine:init', () => {
             this.onVoiceChange();
         },
 
+        destroyHls() {
+            if (this.hlsInstance) {
+                this.hlsInstance.destroy();
+                this.hlsInstance = null;
+            }
+        },
+
         async generate() {
             if (!this.text.trim()) return;
             this.loading = true;
             this.result = null;
+            this.destroyHls();
 
+            if (this.streamMode === 'hls') {
+                await this.generateHls();
+            } else {
+                await this.generateBuffered();
+            }
+            this.loading = false;
+        },
+
+        async generateBuffered() {
             const form = new FormData();
             form.append('text', this.text);
             form.append('summarize', this.summarize);
@@ -122,8 +141,76 @@ document.addEventListener('alpine:init', () => {
                 this.result = await r.json();
             } catch (e) {
                 Alpine.store('app').showToast(e.message, 'error');
-            } finally {
-                this.loading = false;
+            }
+        },
+
+        async generateHls() {
+            const body = {
+                text: this.text,
+                summarize: this.summarize,
+                language: this.language,
+                instruct: this.instruct,
+                speed: this.speed,
+            };
+            if (this.useClonedVoice && this.voice) {
+                body.voice = this.voice;
+            } else {
+                body.speaker = this.speaker;
+            }
+            if (this.selectedPreset) {
+                body.preset = this.selectedPreset;
+            }
+
+            try {
+                const r = await fetch('/speak/hls', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (!r.ok) throw new Error(await r.text());
+                const data = await r.json();
+
+                this.result = {
+                    audio_url: data.playlist_url,
+                    summarize_time: data.summarize_time,
+                    text_spoken: data.spoken_text,
+                    hls: true,
+                };
+
+                // Wait briefly for first segment to be ready
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                this.$nextTick(() => {
+                    const audio = this.$refs.audioPlayer;
+                    if (!audio) return;
+
+                    const playlistUrl = data.playlist_url;
+
+                    if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+                        // Safari native HLS
+                        audio.src = playlistUrl;
+                        audio.play().catch(() => {});
+                    } else if (window.Hls && Hls.isSupported()) {
+                        // HLS.js fallback
+                        const hls = new Hls({ enableWorker: true });
+                        this.hlsInstance = hls;
+                        hls.loadSource(playlistUrl);
+                        hls.attachMedia(audio);
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            audio.play().catch(() => {});
+                        });
+                        hls.on(Hls.Events.ERROR, (_, d) => {
+                            if (d.fatal) {
+                                Alpine.store('app').showToast('HLS playback error', 'error');
+                                hls.destroy();
+                            }
+                        });
+                    } else {
+                        Alpine.store('app').showToast('HLS not supported in this browser', 'error');
+                    }
+                });
+            } catch (e) {
+                Alpine.store('app').showToast(e.message, 'error');
             }
         },
     }));

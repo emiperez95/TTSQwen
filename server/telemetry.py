@@ -138,3 +138,15 @@ stream_ttfb = meter.create_histogram(
     description="Time to first audio byte in streaming mode",
     unit="s",
 )
+
+# HLS
+hls_request_counter = meter.create_counter(
+    "tts.hls.requests",
+    description="Total HLS TTS requests",
+    unit="1",
+)
+hls_ttfb = meter.create_histogram(
+    "tts.hls.ttfb",
+    description="Time to first HLS segment available",
+    unit="s",
+)
