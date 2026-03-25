@@ -479,13 +479,22 @@ async def speak_stream(req: SpeakRequest, request: Request):
 
     def _worker():
         try:
+            chunk_idx = 0
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
                 instruct=req.instruct, speed=req.speed, voice=req.voice,
                 cancel=cancel,
             ):
+                t_enc = time.time()
                 mp3_chunk = wav_to_mp3(wav_chunk)
+                t_enc = time.time() - t_enc
+                log.info(
+                    "[Stream] chunk %d: wav=%dKB → mp3=%dKB (encode=%.2fs, elapsed=%.2fs)",
+                    chunk_idx, len(wav_chunk) // 1024, len(mp3_chunk) // 1024,
+                    t_enc, time.time() - t_start,
+                )
                 q.put(mp3_chunk)
+                chunk_idx += 1
         except Exception as e:
             q.put(e)
         finally:
@@ -494,6 +503,8 @@ async def speak_stream(req: SpeakRequest, request: Request):
     async def _generate():
         thread = threading.Thread(target=_worker, daemon=True)
         first = True
+        chunk_count = 0
+        total_bytes = 0
         async with lock:
             thread.start()
             try:
@@ -506,14 +517,22 @@ async def speak_stream(req: SpeakRequest, request: Request):
                         error_counter.add(1, {"voice": voice_label, "endpoint": "/speak/stream"})
                         break
                     if first:
-                        stream_ttfb.record(time.time() - t_start, {"voice": voice_label})
+                        ttfb = time.time() - t_start
+                        stream_ttfb.record(ttfb, {"voice": voice_label})
+                        log.info("[Stream] TTFB=%.2fs, voice=%s", ttfb, voice_label)
                         first = False
+                    chunk_count += 1
+                    total_bytes += len(item)
                     yield item
             finally:
                 cancel.set()
                 thread.join(timeout=10)
 
         t_total = time.time() - t_start
+        log.info(
+            "[Stream] complete: %d chunks, %dKB total, %.2fs, voice=%s",
+            chunk_count, total_bytes // 1024, t_total, voice_label,
+        )
         request_counter.add(1, {"voice": voice_label, "endpoint": "/speak/stream"})
         request_duration.record(t_total, {"voice": voice_label, "endpoint": "/speak/stream"})
         log.info("Stream complete %.2fs, voice=%s", t_total, voice_label)
