@@ -133,6 +133,34 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 
 Plain text (no tags) works exactly as before — fully backward compatible.
 
+## POST /speak/stream
+
+Same request body as `/speak`, but returns **chunked `audio/mpeg`** (MP3). Audio starts playing within ~2s while the rest is still being generated — much lower perceived latency for multi-sentence text.
+
+| Difference from `/speak` | Details |
+|--------------------------|---------|
+| Response format          | `audio/mpeg` (MP3) instead of `audio/wav` |
+| Delivery                 | Chunked transfer — streams as it generates |
+| Background audio (`<bg>`)| Falls back to buffered MP3 (mixing needs full audio) |
+| `X-TTS-Time` header      | Not available (total time unknown when headers are sent) |
+
+**When to use `/speak/stream` vs `/speak`:**
+- Use `/speak/stream` for longer text (2+ sentences) — client hears audio sooner
+- Use `/speak` for short text or when you need the complete WAV file
+- Use `/speak` when you need `X-TTS-Time` header or WAV format
+
+```bash
+# Stream to file
+curl -s -X POST http://10.18.1.2:9800/speak/stream \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Long text here...", "preset": "Claude Response"}' -o out.mp3
+
+# Stream directly to ffplay for real-time playback (best experience)
+curl -s -N -X POST http://10.18.1.2:9800/speak/stream \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Long text here...", "preset": "Claude Response"}' | ffplay -nodisp -autoexit -i pipe:0
+```
+
 ## Usage Examples
 
 ```bash
@@ -167,6 +195,8 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 - **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
 - **SSML tags** (`<audio>`, `<break>`, `<bg>`) enable sound effects, pauses, and ambient audio — great for DnD narration
 - **Check available SFX** with `GET /api/sfx` before using `<audio>` or `<bg>` tags
-- Output is always `audio/wav` (PCM 16-bit, 24kHz)
-- To play on Mac: pipe to `afplay` or save to file
+- **Use `/speak/stream`** for longer text — starts playing in ~2s instead of waiting for full generation
+- Output is `audio/wav` from `/speak`, `audio/mpeg` (MP3) from `/speak/stream`
+- To play WAV on Mac: pipe to `afplay` or save to file
+- To play streaming MP3: pipe curl output to `ffplay -nodisp -autoexit -i pipe:0`
 - For latest info: `curl http://10.18.1.2:9800/help`
