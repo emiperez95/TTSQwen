@@ -141,6 +141,7 @@ def wav_to_aac_ts(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", inpath,
+                "-ar", "44100",
                 "-codec:a", "aac", "-b:a", bitrate,
                 "-f", "mpegts", outpath,
             ],
