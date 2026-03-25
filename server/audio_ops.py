@@ -125,15 +125,14 @@ def concatenate_wavs(wav_list: list[bytes]) -> bytes:
             pass
 
 
-def wav_to_aac_ts(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float]:
-    """Convert WAV bytes to AAC in MPEG-TS container. Returns (ts_bytes, duration_seconds)."""
+def wav_to_aac_fmp4(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float]:
+    """Convert WAV bytes to AAC in fragmented MP4 container. Returns (fmp4_bytes, duration_seconds)."""
     import wave
-    # Get duration from WAV header
     with wave.open(io.BytesIO(wav_bytes), "rb") as w:
         duration = w.getnframes() / w.getframerate()
 
     in_fd, inpath = tempfile.mkstemp(suffix=".wav")
-    out_fd, outpath = tempfile.mkstemp(suffix=".ts")
+    out_fd, outpath = tempfile.mkstemp(suffix=".m4s")
     try:
         os.close(out_fd)
         with os.fdopen(in_fd, "wb") as f:
@@ -141,17 +140,55 @@ def wav_to_aac_ts(wav_bytes: bytes, bitrate: str = "128k") -> tuple[bytes, float
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", inpath,
-                "-ar", "44100",
+                "-ar", "44100", "-ac", "2",
                 "-codec:a", "aac", "-b:a", bitrate,
-                "-f", "mpegts",
-                "-output_ts_offset", "0",
-                "-muxdelay", "0",
+                "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
                 outpath,
             ],
             capture_output=True, check=True,
         )
         with open(outpath, "rb") as f:
             return f.read(), duration
+    finally:
+        for p in (inpath, outpath):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def generate_fmp4_init() -> bytes:
+    """Generate an fMP4 init segment (ftyp+moov) for AAC 44100Hz stereo."""
+    # Encode tiny silence to get the init atoms
+    silence = np.zeros(1, dtype=np.int16)
+    buf = io.BytesIO()
+    sf.write(buf, silence, TTS_SAMPLE_RATE, format="WAV", subtype="PCM_16")
+
+    in_fd, inpath = tempfile.mkstemp(suffix=".wav")
+    out_fd, outpath = tempfile.mkstemp(suffix=".mp4")
+    try:
+        os.close(out_fd)
+        with os.fdopen(in_fd, "wb") as f:
+            f.write(buf.getvalue())
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", inpath,
+                "-ar", "44100", "-ac", "2",
+                "-codec:a", "aac", "-b:a", "128k",
+                "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                outpath,
+            ],
+            capture_output=True, check=True,
+        )
+        with open(outpath, "rb") as f:
+            data = f.read()
+        # Init = everything before first moof atom
+        moof_pos = data.find(b"moof")
+        if moof_pos > 4:
+            return data[: moof_pos - 4]
+        return data
     finally:
         for p in (inpath, outpath):
             try:

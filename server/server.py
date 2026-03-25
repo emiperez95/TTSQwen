@@ -25,7 +25,7 @@ from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
 from ssml_parser import is_ssml, inject_breaks, parse_ssml, SSMLDocument, SpeechSegment
-from audio_ops import wav_to_mp3, wav_to_aac_ts
+from audio_ops import wav_to_mp3, wav_to_aac_fmp4, generate_fmp4_init
 from hls_manager import HLSManager
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
@@ -249,8 +249,11 @@ POST /speak/hls
 GET /hls/{{session_id}}/playlist.m3u8
   HLS playlist (EVENT type). Poll to discover new segments.
 
-GET /hls/{{session_id}}/{{index}}.ts
-  Individual AAC-TS audio segment.
+GET /hls/{{session_id}}/init.m4s
+  fMP4 initialization segment (codec info).
+
+GET /hls/{{session_id}}/{{index}}.m4s
+  Individual fMP4 audio segment.
 
 GET /api/sfx
   List available sound effect names for <audio> and <bg> tags.
@@ -581,13 +584,15 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
 
     def _synth():
         try:
+            init_data = generate_fmp4_init()
+            q.put(("init", init_data))
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
                 instruct=req.instruct, speed=req.speed, voice=req.voice,
                 cancel=cancel,
             ):
-                ts_bytes, duration = wav_to_aac_ts(wav_chunk)
-                q.put((ts_bytes, duration))
+                fmp4_bytes, duration = wav_to_aac_fmp4(wav_chunk)
+                q.put((fmp4_bytes, duration))
         except Exception as e:
             q.put(e)
         finally:
@@ -606,13 +611,17 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
                     log.error("[HLS] session %s error: %s", session_id, item)
                     hls_mgr.finish(session_id, error=str(item))
                     return
-                ts_bytes, duration = item
-                hls_mgr.add_segment(session_id, ts_bytes, duration)
+                if isinstance(item, tuple) and item[0] == "init":
+                    hls_mgr.set_init(session_id, item[1])
+                    log.info("[HLS] session %s: init segment (%dB)", session_id, len(item[1]))
+                    continue
+                fmp4_bytes, duration = item
+                hls_mgr.add_segment(session_id, fmp4_bytes, duration)
                 if first:
                     hls_ttfb.record(time.time() - t_start, {"voice": req.voice or req.speaker or "aiden"})
                     first = False
                 log.info("[HLS] session %s: segment (%.1fs, %dKB, elapsed=%.2fs)",
-                         session_id, duration, len(ts_bytes) // 1024, time.time() - t_start)
+                         session_id, duration, len(fmp4_bytes) // 1024, time.time() - t_start)
         finally:
             cancel.set()
             thread.join(timeout=10)
@@ -649,8 +658,10 @@ async def speak_hls(req: SpeakRequest, request: Request):
                     speaker=req.speaker, language=req.language,
                     instruct=req.instruct, speed=req.speed, voice=req.voice,
                 )
-            ts_bytes, duration = await asyncio.to_thread(wav_to_aac_ts, wav_bytes)
-            hls_mgr.add_segment(session_id, ts_bytes, duration)
+            init_data = await asyncio.to_thread(generate_fmp4_init)
+            hls_mgr.set_init(session_id, init_data)
+            fmp4_bytes, duration = await asyncio.to_thread(wav_to_aac_fmp4, wav_bytes)
+            hls_mgr.add_segment(session_id, fmp4_bytes, duration)
             hls_mgr.finish(session_id)
         asyncio.create_task(_bg_fallback())
     else:
@@ -677,7 +688,20 @@ async def hls_playlist(session_id: str, request: Request):
     )
 
 
-@app.get("/hls/{session_id}/{index}.ts")
+@app.get("/hls/{session_id}/init.m4s")
+async def hls_init(session_id: str, request: Request):
+    hls_mgr = request.app.state.hls_manager
+    data = hls_mgr.get_init(session_id)
+    if data is None:
+        raise HTTPException(404, "Init segment not found")
+    return Response(
+        content=data,
+        media_type="video/mp4",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/hls/{session_id}/{index}.m4s")
 async def hls_segment(session_id: str, index: int, request: Request):
     hls_mgr = request.app.state.hls_manager
     data = hls_mgr.get_segment(session_id, index)
@@ -685,7 +709,7 @@ async def hls_segment(session_id: str, index: int, request: Request):
         raise HTTPException(404, "Segment not found")
     return Response(
         content=data,
-        media_type="video/MP2T",
+        media_type="video/mp4",
         headers={"Cache-Control": "public, max-age=3600"},
     )
 

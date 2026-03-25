@@ -15,6 +15,7 @@ class HLSSegment:
 
 @dataclass
 class HLSSession:
+    init_segment: bytes | None = None
     segments: list[HLSSegment] = field(default_factory=list)
     done: bool = False
     error: str | None = None
@@ -32,6 +33,19 @@ class HLSManager:
         with self._lock:
             self._sessions[session_id] = HLSSession()
         return session_id
+
+    def set_init(self, session_id: str, data: bytes):
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session:
+                session.init_segment = data
+
+    def get_init(self, session_id: str) -> bytes | None:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return None
+            return session.init_segment
 
     def add_segment(self, session_id: str, data: bytes, duration: float):
         with self._lock:
@@ -63,14 +77,15 @@ class HLSManager:
 
         lines = [
             "#EXTM3U",
-            "#EXT-X-VERSION:6",
+            "#EXT-X-VERSION:7",
             f"#EXT-X-TARGETDURATION:{math.ceil(max_dur)}",
             "#EXT-X-PLAYLIST-TYPE:EVENT",
             "#EXT-X-MEDIA-SEQUENCE:0",
+            '#EXT-X-MAP:URI="init.m4s"',
         ]
         for i, seg in enumerate(segments):
             lines.append(f"#EXTINF:{seg.duration:.3f},")
-            lines.append(f"{i}.ts")
+            lines.append(f"{i}.m4s")
 
         if done:
             lines.append("#EXT-X-ENDLIST")
