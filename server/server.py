@@ -586,8 +586,8 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
         try:
             init_data = generate_fmp4_init()
             q.put(("init", init_data))
-            # Prepend 100ms silence to first chunk to absorb AAC priming delay
-            silence_wav = generate_silence(100)
+            # Prepend 300ms silence to first chunk to absorb AAC priming delay (~46ms)
+            silence_wav = generate_silence(300)
             first = True
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
