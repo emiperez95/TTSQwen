@@ -255,6 +255,9 @@ GET /hls/{{session_id}}/init.m4s
 GET /hls/{{session_id}}/{{index}}.m4s
   Individual fMP4 audio segment.
 
+DELETE /hls/{{session_id}}
+  Abort generation and remove session. Call when user navigates away.
+
 GET /api/sfx
   List available sound effect names for <audio> and <bg> tags.
 
@@ -583,7 +586,9 @@ async def _hls_cleanup_loop(hls_mgr: HLSManager):
 
 async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
     """Background task: generate audio segments and store in HLS session."""
-    cancel = threading.Event()
+    cancel = hls_mgr.get_cancel(session_id)
+    if not cancel:
+        return
     q: queue.Queue = queue.Queue(maxsize=2)
     SENTINEL = object()
     t_start = time.time()
@@ -724,6 +729,16 @@ async def hls_segment(session_id: str, index: int, request: Request):
         media_type="video/mp4",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@app.delete("/hls/{session_id}")
+async def hls_cancel(session_id: str, request: Request):
+    """Abort HLS generation and remove session."""
+    hls_mgr = request.app.state.hls_manager
+    if not hls_mgr.cancel_session(session_id):
+        raise HTTPException(404, "Session not found")
+    log.info("[HLS] session %s cancelled by client", session_id)
+    return {"status": "cancelled", "session_id": session_id}
 
 
 @app.get("/")

@@ -39,6 +39,7 @@ class HLSSession:
     done: bool = False
     error: str | None = None
     created_at: float = field(default_factory=time.time)
+    cancel: threading.Event = field(default_factory=threading.Event)
 
 
 class HLSManager:
@@ -52,6 +53,25 @@ class HLSManager:
         with self._lock:
             self._sessions[session_id] = HLSSession()
         return session_id
+
+    def get_cancel(self, session_id: str) -> threading.Event | None:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            return session.cancel if session else None
+
+    def cancel_session(self, session_id: str) -> bool:
+        """Signal cancellation and mark session done. Returns True if session existed."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return False
+            session.cancel.set()
+            session.done = True
+            return True
+
+    def remove_session(self, session_id: str) -> bool:
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
 
     def set_init(self, session_id: str, data: bytes):
         with self._lock:
