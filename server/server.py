@@ -25,7 +25,7 @@ from voice_manager import VoiceManager
 from history import HistoryManager
 from api_routes import router as api_router
 from ssml_parser import is_ssml, inject_breaks, parse_ssml, SSMLDocument, SpeechSegment
-from audio_ops import wav_to_mp3, wav_to_aac_fmp4, generate_fmp4_init
+from audio_ops import wav_to_mp3, wav_to_aac_fmp4, generate_fmp4_init, generate_silence
 from hls_manager import HLSManager
 from telemetry import (
     init_telemetry, shutdown_telemetry, tracer, request_counter,
@@ -586,6 +586,10 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
         try:
             init_data = generate_fmp4_init()
             q.put(("init", init_data))
+            # Prepend 100ms silence to absorb AAC priming delay
+            silence_wav = generate_silence(100)
+            silence_fmp4, silence_dur = wav_to_aac_fmp4(silence_wav)
+            q.put((silence_fmp4, silence_dur))
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
                 instruct=req.instruct, speed=req.speed, voice=req.voice,
