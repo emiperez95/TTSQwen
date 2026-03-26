@@ -344,7 +344,10 @@ async def speak(req: SpeakRequest, request: Request):
                         text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
                     t_summarize = time.time() - t0
                     summarize_duration.record(t_summarize)
-                    log.info("Summarized in %.2fs: %s...", t_summarize, text[:100])
+                    in_len, out_len = len(req.text), len(text)
+                    reduction = (1 - out_len / max(in_len, 1)) * 100
+                    log.info("[Summarize] %.2fs | %d→%d chars (%.0f%% reduction)\n  IN:  %s\n  OUT: %s",
+                             t_summarize, in_len, out_len, reduction, req.text[:500], text[:500])
                 else:
                     text = req.text
                     t_summarize = 0
@@ -438,7 +441,10 @@ async def _preprocess_text(req: SpeakRequest, summarizer, lock) -> tuple[str, SS
             text = await asyncio.to_thread(summarizer.summarize, req.text, req.language, req.summarize_prompt)
         t_summarize = time.time() - t0
         summarize_duration.record(t_summarize)
-        log.info("Summarized in %.2fs: %s...", t_summarize, text[:100])
+        in_len, out_len = len(req.text), len(text)
+        reduction = (1 - out_len / max(in_len, 1)) * 100
+        log.info("[Summarize] %.2fs | %d→%d chars (%.0f%% reduction)\n  IN:  %s\n  OUT: %s",
+                 t_summarize, in_len, out_len, reduction, req.text[:500], text[:500])
     else:
         text = req.text
         t_summarize = 0.0
