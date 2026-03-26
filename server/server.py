@@ -93,6 +93,7 @@ class SpeakRequest(BaseModel):
     speed: float | None = None
     voice: str | None = None
     summarize_prompt: str | None = None
+    sub_chunk: bool = False
 
     @field_validator("text")
     @classmethod
@@ -502,7 +503,7 @@ async def speak_stream(req: SpeakRequest, request: Request):
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
                 instruct=req.instruct, speed=req.speed, voice=req.voice,
-                cancel=cancel,
+                cancel=cancel, sub_chunk=req.sub_chunk,
             ):
                 t_enc = time.time()
                 mp3_chunk = wav_to_mp3(wav_chunk)
@@ -593,7 +594,7 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
             for wav_chunk in tts.synthesize_ssml_streaming(
                 doc, speaker=req.speaker, language=req.language,
                 instruct=req.instruct, speed=req.speed, voice=req.voice,
-                cancel=cancel,
+                cancel=cancel, sub_chunk=req.sub_chunk,
             ):
                 fmp4_bytes, duration = wav_to_aac_fmp4(wav_chunk)
                 q.put((fmp4_bytes, duration))

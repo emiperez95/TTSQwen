@@ -278,6 +278,55 @@ class TTSEngine:
 
         return result
 
+    def _encode_audio_chunk(self, audio: np.ndarray, sr: int) -> bytes:
+        """Normalize audio array and encode to WAV bytes."""
+        audio = audio / (np.abs(audio).max() + 1e-7)
+        audio = (audio * 32767).astype(np.int16)
+        buf = io.BytesIO()
+        sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
+        return buf.getvalue()
+
+    def _generate_cloned_streaming(
+        self, text, language, voice, instruct,
+        ref_audio_override=None, ref_text_override=None,
+        chunk_size: int = 12,
+    ) -> Generator[tuple[np.ndarray, int], None, None]:
+        """Yield (audio_chunk, sr) tuples from streaming voice clone generation."""
+        model = self._manager.get("base")
+        if ref_audio_override:
+            ref_audio_path = ref_audio_override
+            ref_text = ref_text_override or ""
+        else:
+            ref_audio_path = str(VOICES_DIR / f"{voice}.wav")
+            if not Path(ref_audio_path).exists():
+                raise FileNotFoundError(f"Voice file not found: {ref_audio_path}")
+            ref_text_path = VOICES_DIR / f"{voice}.txt"
+            ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
+        for audio_chunk, sr, timing in model.generate_voice_clone_streaming(
+            text=text,
+            language=language,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
+            xvec_only=False,
+            chunk_size=chunk_size,
+        ):
+            yield audio_chunk, sr
+
+    def _generate_custom_streaming(
+        self, text, language, speaker, instruct,
+        chunk_size: int = 12,
+    ) -> Generator[tuple[np.ndarray, int], None, None]:
+        """Yield (audio_chunk, sr) tuples from streaming custom voice generation."""
+        model = self._manager.get("custom_voice")
+        kwargs = dict(
+            text=text, language=language, speaker=speaker,
+            chunk_size=chunk_size,
+        )
+        if instruct:
+            kwargs["instruct"] = instruct
+        for audio_chunk, sr, timing in model.generate_custom_voice_streaming(**kwargs):
+            yield audio_chunk, sr
+
     def synthesize_ssml_streaming(
         self,
         doc: SSMLDocument,
@@ -287,10 +336,18 @@ class TTSEngine:
         speed: float | None = None,
         voice: str | None = None,
         cancel: "threading.Event | None" = None,
+        sub_chunk: bool = False,
     ) -> Generator[bytes, None, None]:
-        """Yield WAV bytes per segment for streaming. Caller converts to MP3."""
+        """Yield WAV bytes for streaming. Caller converts to MP3/fMP4.
+
+        When sub_chunk=True, yields audio chunks within each sentence
+        (~1s each) using the model's native streaming. When False (default),
+        yields one complete WAV per sentence (original behavior).
+        """
         import threading
         effective_speed = speed if speed is not None else TTS_SPEED
+        language = language or TTS_LANGUAGE
+        instruct = instruct if instruct is not None else TTS_INSTRUCT
 
         last_wav_path = None
         last_text = None
@@ -301,37 +358,76 @@ class TTSEngine:
                     break
 
                 if isinstance(seg, SpeechSegment):
-                    if voice and last_wav_path:
-                        wav_raw = self._synthesize_raw(
-                            seg.text, speaker=speaker, language=language,
-                            instruct=instruct, speed=1.0, voice=voice,
-                            ref_audio_override=last_wav_path,
-                            ref_text_override=last_text,
-                        )
-                    else:
-                        wav_raw = self._synthesize_raw(
-                            seg.text, speaker=speaker, language=language,
-                            instruct=instruct, speed=1.0, voice=voice,
-                        )
+                    if sub_chunk:
+                        # Sub-sentence streaming: yield ~1s chunks from the model
+                        if speaker:
+                            gen = self._generate_custom_streaming(
+                                seg.text, language, speaker, instruct)
+                        else:
+                            gen = self._generate_cloned_streaming(
+                                seg.text, language, voice or TTS_VOICE, instruct,
+                                ref_audio_override=last_wav_path,
+                                ref_text_override=last_text)
 
-                    # Update chaining ref with pre-speed WAV
-                    if voice:
-                        fd, tmp = tempfile.mkstemp(suffix=".wav")
-                        with os.fdopen(fd, "wb") as f:
-                            f.write(wav_raw)
-                        if last_wav_path:
-                            try:
-                                os.remove(last_wav_path)
-                            except OSError:
-                                pass
-                        last_wav_path = tmp
-                        last_text = seg.text
+                        # Collect all chunks for this sentence (for chaining ref)
+                        sentence_audio_parts = []
+                        sentence_sr = None
+                        for audio_chunk, sr in gen:
+                            if cancel and cancel.is_set():
+                                break
+                            sentence_sr = sr
+                            sentence_audio_parts.append(audio_chunk)
+                            wav_chunk = self._encode_audio_chunk(audio_chunk, sr)
+                            if effective_speed != 1.0:
+                                yield self._apply_speed(wav_chunk, effective_speed)
+                            else:
+                                yield wav_chunk
 
-                    # Yield speed-adjusted chunk
-                    if effective_speed != 1.0:
-                        yield self._apply_speed(wav_raw, effective_speed)
+                        # Update chaining ref with full sentence audio
+                        if voice and sentence_audio_parts and sentence_sr:
+                            full_audio = np.concatenate(sentence_audio_parts)
+                            wav_raw = self._encode_audio_chunk(full_audio, sentence_sr)
+                            fd, tmp = tempfile.mkstemp(suffix=".wav")
+                            with os.fdopen(fd, "wb") as f:
+                                f.write(wav_raw)
+                            if last_wav_path:
+                                try:
+                                    os.remove(last_wav_path)
+                                except OSError:
+                                    pass
+                            last_wav_path = tmp
+                            last_text = seg.text
                     else:
-                        yield wav_raw
+                        # Original behavior: one WAV per sentence
+                        if voice and last_wav_path:
+                            wav_raw = self._synthesize_raw(
+                                seg.text, speaker=speaker, language=language,
+                                instruct=instruct, speed=1.0, voice=voice,
+                                ref_audio_override=last_wav_path,
+                                ref_text_override=last_text,
+                            )
+                        else:
+                            wav_raw = self._synthesize_raw(
+                                seg.text, speaker=speaker, language=language,
+                                instruct=instruct, speed=1.0, voice=voice,
+                            )
+
+                        if voice:
+                            fd, tmp = tempfile.mkstemp(suffix=".wav")
+                            with os.fdopen(fd, "wb") as f:
+                                f.write(wav_raw)
+                            if last_wav_path:
+                                try:
+                                    os.remove(last_wav_path)
+                                except OSError:
+                                    pass
+                            last_wav_path = tmp
+                            last_text = seg.text
+
+                        if effective_speed != 1.0:
+                            yield self._apply_speed(wav_raw, effective_speed)
+                        else:
+                            yield wav_raw
 
                 elif isinstance(seg, BreakSegment):
                     yield generate_silence(seg.duration_ms)
