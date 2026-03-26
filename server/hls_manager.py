@@ -1,10 +1,29 @@
 """HLS session management — in-memory segment storage with TTL cleanup."""
 
 import math
+import struct
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+
+TIMESCALE = 44100  # AAC at 44100 Hz
+
+
+def _patch_tfdt(data: bytes, base_decode_time: int) -> bytes:
+    """Patch the tfdt box's baseMediaDecodeTime in an fMP4 segment."""
+    pos = data.find(b"tfdt")
+    if pos < 0:
+        return data
+    data = bytearray(data)
+    version = data[pos + 4]
+    if version == 1:
+        # 64-bit baseMediaDecodeTime
+        struct.pack_into(">Q", data, pos + 5, base_decode_time)
+    else:
+        # 32-bit baseMediaDecodeTime
+        struct.pack_into(">I", data, pos + 5, base_decode_time)
+    return bytes(data)
 
 
 @dataclass
@@ -51,6 +70,10 @@ class HLSManager:
         with self._lock:
             session = self._sessions.get(session_id)
             if session:
+                # Compute cumulative decode time for this segment
+                cumulative = sum(s.duration for s in session.segments)
+                base_decode_time = int(cumulative * TIMESCALE)
+                data = _patch_tfdt(data, base_decode_time)
                 session.segments.append(HLSSegment(data=data, duration=duration))
 
     def finish(self, session_id: str, error: str | None = None):
