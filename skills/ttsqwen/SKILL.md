@@ -161,6 +161,40 @@ curl -s -N -X POST http://10.18.1.2:9800/speak/stream \
   -d '{"text": "Long text here...", "preset": "Claude Response"}' | ffplay -nodisp -autoexit -i pipe:0
 ```
 
+## POST /speak/hls
+
+Same request body as `/speak`, but returns a **JSON response with an HLS playlist URL** for browser streaming. Audio is encoded as fMP4 (AAC 44100Hz stereo) segments. iOS Safari plays natively; other browsers use HLS.js.
+
+**Response:**
+```json
+{"session_id": "abc123", "playlist_url": "/hls/abc123/playlist.m3u8", "summarize_time": 3.5, "spoken_text": "..."}
+```
+
+**HLS routes:**
+| Route | Description |
+|-------|-------------|
+| `GET /hls/{session_id}/playlist.m3u8` | EVENT playlist — poll to discover new segments |
+| `GET /hls/{session_id}/init.m4s` | fMP4 init segment (codec info) |
+| `GET /hls/{session_id}/{index}.m4s` | fMP4 audio segments |
+| `DELETE /hls/{session_id}` | Abort generation and clean up (call on user navigate-away) |
+
+Sessions expire after 5 minutes automatically.
+
+```bash
+# Create HLS session
+curl -s -X POST http://10.18.1.2:9800/speak/hls \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Long text here...", "preset": "Claude Response"}'
+
+# Cancel generation
+curl -s -X DELETE http://10.18.1.2:9800/hls/{session_id}
+```
+
+**When to use `/speak/hls`:**
+- Use for browser playback — especially iOS Safari (native HLS support)
+- Use when building web UIs that need streaming audio
+- Use `/speak/stream` instead for CLI/non-browser clients
+
 ## Usage Examples
 
 ```bash
@@ -195,8 +229,10 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 - **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
 - **SSML tags** (`<audio>`, `<break>`, `<bg>`) enable sound effects, pauses, and ambient audio — great for DnD narration
 - **Check available SFX** with `GET /api/sfx` before using `<audio>` or `<bg>` tags
-- **Use `/speak/stream`** for longer text — starts playing in ~2s instead of waiting for full generation
-- Output is `audio/wav` from `/speak`, `audio/mpeg` (MP3) from `/speak/stream`
+- **Use `/speak/stream`** for longer text in CLI — starts playing in ~2s instead of waiting for full generation
+- **Use `/speak/hls`** for browser playback — iOS Safari native, others via HLS.js
+- **Call `DELETE /hls/{session_id}`** when user navigates away to stop generation and free GPU
+- Output: `audio/wav` from `/speak`, `audio/mpeg` from `/speak/stream`, fMP4 HLS from `/speak/hls`
 - To play WAV on Mac: pipe to `afplay` or save to file
 - To play streaming MP3: pipe curl output to `ffplay -nodisp -autoexit -i pipe:0`
 - For latest info: `curl http://10.18.1.2:9800/help`
