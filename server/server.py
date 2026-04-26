@@ -36,6 +36,7 @@ from telemetry import (
 log = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+SSML_SPEC_PATH = Path(__file__).parent.parent / "SSML_SPEC.md"
 
 
 @asynccontextmanager
@@ -167,6 +168,16 @@ async def cancel_keep_alive(request: Request):
     return {"keep_alive_remaining": 0}
 
 
+@app.get("/help/ssml")
+async def help_ssml():
+    """Return the full SSML markup spec as markdown."""
+    try:
+        content = SSML_SPEC_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="SSML spec file not found on server")
+    return Response(content=content, media_type="text/markdown; charset=utf-8")
+
+
 @app.get("/help")
 async def help_text(request: Request):
     from api_routes import _load_presets
@@ -246,6 +257,8 @@ POST /speak
       <voice name="Vivian">Glad to be here.</voice>
 
     Limits: 50 segments max, 10 second max <break>, one <bg> per request.
+
+    Full SSML spec: GET /help/ssml (returns markdown)
 
 POST /speak/stream
   Same as /speak, but streams audio as MP3 chunks.
