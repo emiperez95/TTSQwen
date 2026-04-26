@@ -1,10 +1,14 @@
 """
 SSML-like markup parser for TTS.
 
-Supported tags (self-closing only):
-  <audio src="name"/>     — insert sound effect from server/sfx/
-  <break time="500ms"/>   — insert silence (ms or s units)
-  <bg src="name" vol="0.15"/> — mix background audio under entire output (looped)
+Supported tags:
+  Self-closing:
+    <audio src="name"/>     — insert sound effect from server/sfx/
+    <break time="500ms"/>   — insert silence (ms or s units)
+    <bg src="name" vol="0.15"/> — mix background audio under entire output (looped)
+  Paired:
+    <voice name="aiden">...</voice> — render the wrapped text in a different voice
+                                       (preset speaker name or cloned voice name)
 """
 
 import re
@@ -17,12 +21,18 @@ _TAG_RE = re.compile(
     r'<(audio|break|bg)\s+([^>]*?)\s*/>', re.IGNORECASE
 )
 _ATTR_RE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
-_SSML_DETECT_RE = re.compile(r'<(?:audio|break|bg)\s', re.IGNORECASE)
+_SSML_DETECT_RE = re.compile(r'<(?:audio|break|bg|voice)\b', re.IGNORECASE)
+_VOICE_BLOCK_RE = re.compile(
+    r'<voice\s+([^>]*?)\s*>(.*?)</voice\s*>',
+    re.IGNORECASE | re.DOTALL,
+)
+_VOICE_TAG_DETECT_RE = re.compile(r'</?voice\b', re.IGNORECASE)
 
 
 @dataclass
 class SpeechSegment:
     text: str
+    name: str | None = None  # voice/speaker override from <voice name="..."> block
 
 
 @dataclass
@@ -50,6 +60,13 @@ class SSMLDocument:
         """Return concatenated speech text with tags stripped."""
         parts = [seg.text for seg in self.segments if isinstance(seg, SpeechSegment)]
         return " ".join(parts)
+
+    def voice_names(self) -> set[str]:
+        """Return distinct voice/speaker names referenced by <voice> blocks."""
+        return {
+            seg.name for seg in self.segments
+            if isinstance(seg, SpeechSegment) and seg.name
+        }
 
 
 _SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+')
@@ -87,40 +104,80 @@ def _parse_duration(time_str: str) -> int:
     return min(max(ms, 0), MAX_BREAK_MS)
 
 
-def parse_ssml(text: str) -> SSMLDocument:
-    """Parse SSML-like markup into an SSMLDocument."""
+def _parse_simple(text: str, voice_name: str | None) -> tuple[list, "BackgroundAudio | None"]:
+    """Parse text containing only self-closing tags (audio/break/bg).
+
+    Speech segments inherit `voice_name` (None outside any <voice> block).
+    """
+    if _VOICE_TAG_DETECT_RE.search(text):
+        raise ValueError("nested or unbalanced <voice> tag")
+
     segments: list = []
     background: BackgroundAudio | None = None
 
-    # Split text around tags, keeping the tags as captured groups
     parts = _TAG_RE.split(text)
     # parts alternates: [text, tag_name, attrs, text, tag_name, attrs, ...]
-
     i = 0
     while i < len(parts):
         if i % 3 == 0:
-            # Text segment
             chunk = parts[i].strip()
             if chunk:
-                segments.append(SpeechSegment(text=chunk))
+                segments.append(SpeechSegment(text=chunk, name=voice_name))
         elif i % 3 == 1:
             tag_name = parts[i].lower()
             attrs = _parse_attrs(parts[i + 1])
 
             if tag_name == "audio":
-                name = attrs.get("src", "")
-                if name:
-                    segments.append(AudioSegment(name=name))
+                src = attrs.get("src", "")
+                if src:
+                    segments.append(AudioSegment(name=src))
             elif tag_name == "break":
                 time_str = attrs.get("time", "500ms")
                 segments.append(BreakSegment(duration_ms=_parse_duration(time_str)))
             elif tag_name == "bg":
-                name = attrs.get("src", "")
-                if name:
+                src = attrs.get("src", "")
+                if src:
                     vol = float(attrs.get("vol", "0.15"))
-                    background = BackgroundAudio(name=name, volume=vol)
+                    background = BackgroundAudio(name=src, volume=vol)
             i += 1  # skip attrs part (consumed here)
         i += 1
+
+    return segments, background
+
+
+def parse_ssml(text: str) -> SSMLDocument:
+    """Parse SSML-like markup into an SSMLDocument."""
+    segments: list = []
+    background: BackgroundAudio | None = None
+
+    last_end = 0
+    for m in _VOICE_BLOCK_RE.finditer(text):
+        outer = text[last_end:m.start()]
+        if outer.strip():
+            seg, bg = _parse_simple(outer, None)
+            segments.extend(seg)
+            if bg and not background:
+                background = bg
+
+        attrs = _parse_attrs(m.group(1))
+        voice_name = attrs.get("name", "").strip()
+        if not voice_name:
+            raise ValueError('<voice> tag missing or empty "name" attribute')
+
+        body = m.group(2)
+        seg, bg = _parse_simple(body, voice_name)
+        segments.extend(seg)
+        if bg and not background:
+            background = bg
+
+        last_end = m.end()
+
+    tail = text[last_end:]
+    if tail.strip():
+        seg, bg = _parse_simple(tail, None)
+        segments.extend(seg)
+        if bg and not background:
+            background = bg
 
     # Enforce segment limit
     if len(segments) > MAX_SEGMENTS:

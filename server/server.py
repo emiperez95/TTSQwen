@@ -230,9 +230,22 @@ POST /speak
       <break time="500ms"/>      Insert silence (ms or s units, max 10s)
       <bg src="name" vol="0.15"/> Mix looped background audio underneath
 
+    Tags (paired):
+      <voice name="Aiden">...</voice>
+        Render the wrapped text in a different voice. `name` is a preset
+        speaker (case-sensitive: Aiden, Ryan, Vivian, ...) or a cloned
+        voice name (lowercase, must exist in voices/). No nesting.
+        Text outside any <voice> block uses the request's default voice.
+
     Example:
       The old man coughs. <audio src="cough"/> <break time="800ms"/>
       Then he whispers. <bg src="tavern" vol="0.12"/>
+
+      <voice name="Aiden">Welcome to the show.</voice>
+      <break time="400ms"/>
+      <voice name="Vivian">Glad to be here.</voice>
+
+    Limits: 50 segments max, 10 second max <break>, one <bg> per request.
 
 POST /speak/stream
   Same as /speak, but streams audio as MP3 chunks.
@@ -327,6 +340,7 @@ async def speak(req: SpeakRequest, request: Request):
 
             if ssml_mode:
                 doc = parse_ssml(req.text)
+                _validate_voices(doc, request.app.state.voice_mgr)
                 text = doc.plain_text()
                 t_summarize = 0
 
@@ -361,6 +375,7 @@ async def speak(req: SpeakRequest, request: Request):
                 t1 = time.time()
                 if is_ssml(text):
                     doc = parse_ssml(text)
+                    _validate_voices(doc, request.app.state.voice_mgr)
                     wav_bytes = await asyncio.to_thread(
                         tts.synthesize_ssml,
                         doc,
@@ -403,6 +418,24 @@ async def speak(req: SpeakRequest, request: Request):
                 "X-Spoken-Text": urllib.parse.quote(text[:200]),
             },
         )
+
+
+def _validate_voices(doc: SSMLDocument, voice_mgr: VoiceManager):
+    """Reject docs that reference unknown voices in <voice name="..."> tags."""
+    unknown = sorted(n for n in doc.voice_names() if not voice_mgr.is_known(n))
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown voice(s) in <voice> tag: {', '.join(unknown)}",
+        )
+
+
+def _doc_voice_label(doc: SSMLDocument, default: str) -> str:
+    """Telemetry label: first speech segment's voice override, else default."""
+    for seg in doc.segments:
+        if isinstance(seg, SpeechSegment):
+            return seg.name or default
+    return default
 
 
 def _resolve_preset(req: SpeakRequest):
@@ -473,6 +506,8 @@ async def speak_stream(req: SpeakRequest, request: Request):
 
     # Pre-processing (summarization) completes before streaming starts
     text, doc, t_summarize = await _preprocess_text(req, summarizer, lock)
+    _validate_voices(doc, request.app.state.voice_mgr)
+    voice_label = _doc_voice_label(doc, voice_label)
 
     stream_request_counter.add(1, {"voice": voice_label})
     input_chars.record(len(req.text), {"voice": voice_label})
@@ -635,7 +670,7 @@ async def _hls_worker(session_id, doc, req, tts, lock, hls_mgr):
                 fmp4_bytes, duration = item
                 hls_mgr.add_segment(session_id, fmp4_bytes, duration)
                 if first:
-                    hls_ttfb.record(time.time() - t_start, {"voice": req.voice or req.speaker or "aiden"})
+                    hls_ttfb.record(time.time() - t_start, {"voice": _doc_voice_label(doc, req.voice or req.speaker or "aiden")})
                     first = False
                 log.info("[HLS] session %s: segment (%.1fs, %dKB, elapsed=%.2fs)",
                          session_id, duration, len(fmp4_bytes) // 1024, time.time() - t_start)
@@ -660,6 +695,8 @@ async def speak_hls(req: SpeakRequest, request: Request):
 
     # Pre-processing (summarization) completes before returning
     text, doc, t_summarize = await _preprocess_text(req, summarizer, lock)
+    _validate_voices(doc, request.app.state.voice_mgr)
+    voice_label = _doc_voice_label(doc, voice_label)
 
     hls_request_counter.add(1, {"voice": voice_label})
     input_chars.record(len(req.text), {"voice": voice_label})

@@ -124,6 +124,9 @@ async def api_speak(
 
         if ssml_mode:
             doc = parse_ssml(text)
+            unknown_voices = sorted(n for n in doc.voice_names() if not request.app.state.voice_mgr.is_known(n))
+            if unknown_voices:
+                raise HTTPException(status_code=422, detail=f"unknown voice(s) in <voice> tag: {', '.join(unknown_voices)}")
             text_spoken = doc.plain_text()
             t_summarize = 0.0
 
@@ -152,6 +155,9 @@ async def api_speak(
             t1 = time.time()
             if is_ssml(text_spoken):
                 doc = parse_ssml(text_spoken)
+                unknown_voices = sorted(n for n in doc.voice_names() if not request.app.state.voice_mgr.is_known(n))
+                if unknown_voices:
+                    raise HTTPException(status_code=422, detail=f"unknown voice(s) in <voice> tag: {', '.join(unknown_voices)}")
                 wav_bytes = await asyncio.to_thread(
                     tts.synthesize_ssml,
                     doc,

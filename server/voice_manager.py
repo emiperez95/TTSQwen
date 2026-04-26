@@ -11,6 +11,12 @@ class VoiceManager:
     def __init__(self):
         VOICES_DIR.mkdir(exist_ok=True)
 
+    def is_known(self, name: str) -> bool:
+        """True if `name` is a preset speaker or an existing cloned voice file."""
+        if name in PRESET_SPEAKERS:
+            return True
+        return (VOICES_DIR / f"{name}.wav").exists()
+
     def list_voices(self) -> dict:
         preset = [
             {"name": name, **meta}

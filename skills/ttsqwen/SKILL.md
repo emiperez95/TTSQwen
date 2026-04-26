@@ -110,6 +110,12 @@ Text can include tags for sound effects, pauses, and background ambient audio. W
 | `<break time="500ms"/>` | Insert silence (`ms` or `s` units, max 10s) |
 | `<bg src="name" vol="0.15"/>` | Mix looped background audio underneath entire output |
 
+### Tags (paired)
+
+| Tag | Description |
+|-----|-------------|
+| `<voice name="Aiden">...</voice>` | Render the wrapped text in a different voice. `name` is a preset speaker (case-sensitive: `Aiden`, `Ryan`, `Vivian`, `Serena`, `Dylan`, `Eric`, `Uncle_Fu`, `Ono_Anna`, `Sohee`) or a cloned voice name (lowercase, must exist in `voices/`). Nesting not allowed. Text outside any `<voice>` block uses the request's default voice. |
+
 ### Available SFX
 
 Check what sound effects are available:
@@ -129,6 +135,11 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 curl -s -X POST http://10.18.1.2:9800/speak \
   -H "Content-Type: application/json" \
   -d '{"text": "The old man coughs. <audio src=\"cough\"/> <break time=\"800ms\"/> The treasure lies beneath the mountain. <bg src=\"tavern\" vol=\"0.12\"/>", "preset": "DnD Narrator"}' -o out.wav
+
+# Two-speaker dialogue (podcast-style)
+curl -s -X POST http://10.18.1.2:9800/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text": "<voice name=\"Aiden\">Welcome to the show.</voice> <break time=\"400ms\"/> <voice name=\"Vivian\">Glad to be here.</voice>", "summarize": false}' -o out.wav
 ```
 
 Plain text (no tags) works exactly as before — fully backward compatible.
@@ -227,7 +238,7 @@ curl -s -X POST http://10.18.1.2:9800/speak \
 - **Use `summarize: true`** (default) for long/technical text
 - **Use `summarize: false`** for short text or exact wording
 - **Speed 1.0–1.3x** for most use cases; male voices handle higher speeds better
-- **SSML tags** (`<audio>`, `<break>`, `<bg>`) enable sound effects, pauses, and ambient audio — great for DnD narration
+- **SSML tags** (`<audio>`, `<break>`, `<bg>`, `<voice>`) enable sound effects, pauses, ambient audio, and multi-speaker dialogue — great for DnD narration and podcast-style content
 - **Check available SFX** with `GET /api/sfx` before using `<audio>` or `<bg>` tags
 - **Use `/speak/stream`** for longer text in CLI — starts playing in ~2s instead of waiting for full generation
 - **Use `/speak/hls`** for browser playback — iOS Safari native, others via HLS.js

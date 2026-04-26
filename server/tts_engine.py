@@ -13,7 +13,8 @@ import torch
 from faster_qwen3_tts import FasterQwen3TTS
 
 from config import (
-    TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE, TTS_SPEAKER, TTS_SPEED, TTS_VOICE,
+    PRESET_SPEAKERS, TTS_INSTRUCT, TTS_LANGUAGE, TTS_MODEL, TTS_MODEL_BASE,
+    TTS_SPEAKER, TTS_SPEED, TTS_VOICE,
 )
 from model_manager import ModelManager
 from ssml_parser import SSMLDocument, SpeechSegment, BreakSegment, AudioSegment
@@ -195,6 +196,24 @@ class TTSEngine:
         )
         return model.generate_voice_clone(**kwargs)
 
+    @staticmethod
+    def _resolve_segment_voice(
+        seg_name: str | None,
+        default_speaker: str | None,
+        default_voice: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Map a SpeechSegment's `name` override to (speaker, voice).
+
+        - Preset name → (preset, None) routes to CustomVoice model.
+        - Other name → (None, name) routes to clone model.
+        - No override → fall back to request defaults.
+        """
+        if seg_name:
+            if seg_name in PRESET_SPEAKERS:
+                return seg_name, None
+            return None, seg_name
+        return default_speaker, default_voice
+
     def synthesize_ssml(
         self,
         doc: SSMLDocument,
@@ -207,60 +226,51 @@ class TTSEngine:
         """Synthesize an SSML document: speech segments via TTS, breaks as silence, audio as SFX."""
         effective_speed = speed if speed is not None else TTS_SPEED
 
-        # For chained voice cloning: track the last generated audio
-        # so subsequent sentences use it as reference for pitch consistency
-        last_wav_path = None
-        last_text = None
+        # Per-voice chain state: clone voice name → (wav_path, text).
+        # Each speaker chains against their own prior segment, not whoever spoke last.
+        chain_state: dict[str, tuple[str, str]] = {}
 
         wav_parts: list[bytes] = []
-        for seg in doc.segments:
-            if isinstance(seg, SpeechSegment):
-                if voice and last_wav_path:
-                    # Chain: use previous output as reference
+        try:
+            for seg in doc.segments:
+                if isinstance(seg, SpeechSegment):
+                    eff_speaker, eff_voice = self._resolve_segment_voice(seg.name, speaker, voice)
+                    prior = chain_state.get(eff_voice) if eff_voice else None
+                    ref_audio = prior[0] if prior else None
+                    ref_text = prior[1] if prior else None
+
                     wav_bytes_seg = self._synthesize_raw(
                         seg.text,
-                        speaker=speaker,
+                        speaker=eff_speaker,
                         language=language,
                         instruct=instruct,
                         speed=1.0,
-                        voice=voice,
-                        ref_audio_override=last_wav_path,
-                        ref_text_override=last_text,
+                        voice=eff_voice,
+                        ref_audio_override=ref_audio,
+                        ref_text_override=ref_text,
                     )
-                else:
-                    wav_bytes_seg = self._synthesize_raw(
-                        seg.text,
-                        speaker=speaker,
-                        language=language,
-                        instruct=instruct,
-                        speed=1.0,
-                        voice=voice,
-                    )
-                wav_parts.append(wav_bytes_seg)
+                    wav_parts.append(wav_bytes_seg)
 
-                # Save this output as reference for next segment
-                if voice:
-                    fd, tmp = tempfile.mkstemp(suffix=".wav")
-                    with os.fdopen(fd, "wb") as f:
-                        f.write(wav_bytes_seg)
-                    if last_wav_path:
-                        try:
-                            os.remove(last_wav_path)
-                        except OSError:
-                            pass
-                    last_wav_path = tmp
-                    last_text = seg.text
-            elif isinstance(seg, BreakSegment):
-                wav_parts.append(generate_silence(seg.duration_ms))
-            elif isinstance(seg, AudioSegment):
-                wav_parts.append(load_sfx(seg.name))
-
-        # Clean up chaining temp file
-        if last_wav_path:
-            try:
-                os.remove(last_wav_path)
-            except OSError:
-                pass
+                    if eff_voice:
+                        fd, tmp = tempfile.mkstemp(suffix=".wav")
+                        with os.fdopen(fd, "wb") as f:
+                            f.write(wav_bytes_seg)
+                        if prior:
+                            try:
+                                os.remove(prior[0])
+                            except OSError:
+                                pass
+                        chain_state[eff_voice] = (tmp, seg.text)
+                elif isinstance(seg, BreakSegment):
+                    wav_parts.append(generate_silence(seg.duration_ms))
+                elif isinstance(seg, AudioSegment):
+                    wav_parts.append(load_sfx(seg.name))
+        finally:
+            for path, _ in chain_state.values():
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
         if not wav_parts:
             wav_parts.append(generate_silence(100))
@@ -292,8 +302,7 @@ class TTSEngine:
         import threading
         effective_speed = speed if speed is not None else TTS_SPEED
 
-        last_wav_path = None
-        last_text = None
+        chain_state: dict[str, tuple[str, str]] = {}
 
         try:
             for seg in doc.segments:
@@ -301,31 +310,27 @@ class TTSEngine:
                     break
 
                 if isinstance(seg, SpeechSegment):
-                    if voice and last_wav_path:
-                        wav_raw = self._synthesize_raw(
-                            seg.text, speaker=speaker, language=language,
-                            instruct=instruct, speed=1.0, voice=voice,
-                            ref_audio_override=last_wav_path,
-                            ref_text_override=last_text,
-                        )
-                    else:
-                        wav_raw = self._synthesize_raw(
-                            seg.text, speaker=speaker, language=language,
-                            instruct=instruct, speed=1.0, voice=voice,
-                        )
+                    eff_speaker, eff_voice = self._resolve_segment_voice(seg.name, speaker, voice)
+                    prior = chain_state.get(eff_voice) if eff_voice else None
+
+                    wav_raw = self._synthesize_raw(
+                        seg.text, speaker=eff_speaker, language=language,
+                        instruct=instruct, speed=1.0, voice=eff_voice,
+                        ref_audio_override=prior[0] if prior else None,
+                        ref_text_override=prior[1] if prior else None,
+                    )
 
                     # Update chaining ref with pre-speed WAV
-                    if voice:
+                    if eff_voice:
                         fd, tmp = tempfile.mkstemp(suffix=".wav")
                         with os.fdopen(fd, "wb") as f:
                             f.write(wav_raw)
-                        if last_wav_path:
+                        if prior:
                             try:
-                                os.remove(last_wav_path)
+                                os.remove(prior[0])
                             except OSError:
                                 pass
-                        last_wav_path = tmp
-                        last_text = seg.text
+                        chain_state[eff_voice] = (tmp, seg.text)
 
                     # Yield speed-adjusted chunk
                     if effective_speed != 1.0:
@@ -339,9 +344,9 @@ class TTSEngine:
                 elif isinstance(seg, AudioSegment):
                     yield load_sfx(seg.name)
         finally:
-            if last_wav_path:
+            for path, _ in chain_state.values():
                 try:
-                    os.remove(last_wav_path)
+                    os.remove(path)
                 except OSError:
                     pass
 
