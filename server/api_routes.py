@@ -14,6 +14,13 @@ from config import (
     TTS_INSTRUCT, TTS_LANGUAGE, TTS_SPEED, TTS_VOICE, VALID_LANGUAGES,
 )
 from ssml_parser import is_ssml, inject_breaks, parse_ssml
+
+
+def _parse_ssml_or_422(text: str):
+    try:
+        return parse_ssml(text)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 from audio_ops import list_sfx
 
 router = APIRouter(prefix="/api")
@@ -123,7 +130,7 @@ async def api_speak(
         text_input = text
 
         if ssml_mode:
-            doc = parse_ssml(text)
+            doc = _parse_ssml_or_422(text)
             unknown_voices = sorted(n for n in doc.voice_names() if not request.app.state.voice_mgr.is_known(n))
             if unknown_voices:
                 raise HTTPException(status_code=422, detail=f"unknown voice(s) in <voice> tag: {', '.join(unknown_voices)}")
@@ -154,7 +161,7 @@ async def api_speak(
 
             t1 = time.time()
             if is_ssml(text_spoken):
-                doc = parse_ssml(text_spoken)
+                doc = _parse_ssml_or_422(text_spoken)
                 unknown_voices = sorted(n for n in doc.voice_names() if not request.app.state.voice_mgr.is_known(n))
                 if unknown_voices:
                     raise HTTPException(status_code=422, detail=f"unknown voice(s) in <voice> tag: {', '.join(unknown_voices)}")

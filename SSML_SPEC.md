@@ -27,7 +27,7 @@ Mix a background track under the **entire** output (looped). `vol` is `0.0`–`1
 
 ## Rules and limits
 
-- **Max 50 segments** per document (a segment = one speech run, one break, or one audio insert). Excess is truncated.
+- **Max 200 segments** per document (a segment = one speech run, one break, or one audio insert). Exceeding this returns HTTP 422.
 - **Auto-pauses**: if the input contains no SSML tags, the server auto-injects `<break time="300ms"/>` between sentences and `<break time="700ms"/>` between paragraphs (double newlines). If your script contains *any* SSML tag, auto-injection is skipped — add your own breaks.
 - **Summarization**: any SSML in the input disables the summarizer. The script is rendered verbatim.
 - **Max input length**: 10,000 characters.

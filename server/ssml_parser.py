@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 
 MAX_BREAK_MS = 10_000
-MAX_SEGMENTS = 50
+MAX_SEGMENTS = 200
 
 _TAG_RE = re.compile(
     r'<(audio|break|bg)\s+([^>]*?)\s*/>', re.IGNORECASE
@@ -179,8 +179,10 @@ def parse_ssml(text: str) -> SSMLDocument:
         if bg and not background:
             background = bg
 
-    # Enforce segment limit
     if len(segments) > MAX_SEGMENTS:
-        segments = segments[:MAX_SEGMENTS]
+        raise ValueError(
+            f"document exceeds max {MAX_SEGMENTS} segments (got {len(segments)}); "
+            "split into multiple requests or remove redundant <break>/<audio> tags"
+        )
 
     return SSMLDocument(segments=segments, background=background)

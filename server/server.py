@@ -256,7 +256,8 @@ POST /speak
       <break time="400ms"/>
       <voice name="Vivian">Glad to be here.</voice>
 
-    Limits: 50 segments max, 10 second max <break>, one <bg> per request.
+    Limits: 200 segments max (422 if exceeded), 10 second max <break>,
+            one <bg> per request.
 
     Full SSML spec: GET /help/ssml (returns markdown)
 
@@ -352,7 +353,7 @@ async def speak(req: SpeakRequest, request: Request):
             t0 = time.time()
 
             if ssml_mode:
-                doc = parse_ssml(req.text)
+                doc = _parse_ssml_or_422(req.text)
                 _validate_voices(doc, request.app.state.voice_mgr)
                 text = doc.plain_text()
                 t_summarize = 0
@@ -387,7 +388,7 @@ async def speak(req: SpeakRequest, request: Request):
 
                 t1 = time.time()
                 if is_ssml(text):
-                    doc = parse_ssml(text)
+                    doc = _parse_ssml_or_422(text)
                     _validate_voices(doc, request.app.state.voice_mgr)
                     wav_bytes = await asyncio.to_thread(
                         tts.synthesize_ssml,
@@ -431,6 +432,13 @@ async def speak(req: SpeakRequest, request: Request):
                 "X-Spoken-Text": urllib.parse.quote(text[:200]),
             },
         )
+
+
+def _parse_ssml_or_422(text: str) -> SSMLDocument:
+    try:
+        return parse_ssml(text)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 def _validate_voices(doc: SSMLDocument, voice_mgr: VoiceManager):
@@ -481,7 +489,7 @@ async def _preprocess_text(req: SpeakRequest, summarizer, lock) -> tuple[str, SS
         req.summarize = False
 
     if ssml_mode:
-        doc = parse_ssml(req.text)
+        doc = _parse_ssml_or_422(req.text)
         return doc.plain_text(), doc, 0.0
 
     t0 = time.time()
@@ -500,7 +508,7 @@ async def _preprocess_text(req: SpeakRequest, summarizer, lock) -> tuple[str, SS
 
     text = inject_breaks(text)
     if is_ssml(text):
-        doc = parse_ssml(text)
+        doc = _parse_ssml_or_422(text)
         return doc.plain_text(), doc, t_summarize
     else:
         doc = SSMLDocument(segments=[SpeechSegment(text=text)], background=None)
